@@ -1,0 +1,49 @@
+{
+  "main": {
+    "error": {
+      "title": "哎呀！出了点问题。",
+      "with_message": "发生错误：{msg}",
+      "no_net": "网络连接似乎已断开。请检查网络后重试。",
+      "no_net_retry": "重试"
+    }
+  },
+  "api": {
+    "errors": {
+      "bad_request": "无效请求。请检查输入的数据。",
+      "forbidden": "您没有执行此操作的权限。",
+      "not_found": "未找到请求的资源。",
+      "method_not_allowed": "服务器不支持该请求方法。",
+      "timeout": "请求超时。请重试。",
+      "conflict": "服务器上数据状态冲突。",
+      "gone": "该资源已不存在并被移除。",
+      "payload_too_large": "数据量过大，无法处理。",
+      "unprocessable_entity": "服务器端数据验证错误。",
+      "too_many_requests": "请求过多。请稍等片刻再重试。",
+      "server_error": "内部服务器错误。",
+      "bad_gateway": "网关错误。请过几分钟再重试。",
+      "gateway_timeout": "网关等待服务器响应超时。",
+      "service_unavailable": "服务因维护暂时不可用。",
+      "invalid_response": "服务器返回了无效响应。服务可能已关闭。",
+      "unknown": "发生未知网络错误。",
+      "connection_failed": "连接服务器失败。"
+    },
+    "auth": {
+      "no_instance": "未选择实例。请选择一个服务器。",
+      "invalid_credentials": "用户名或密码无效。请检查您的详细信息后重试。",
+      "generic": "授权时发生错误。请稍后重试。",
+      "empty_fields": "请填写所有字段"
+    }
+  },
+  "error": {
+    "no_internet": "无网络连接",
+    "unknown": "发生错误：{msg}"
+  },
+  "views": {
+    "login": {
+      "field_login": "邮箱",
+      "field_password": "密码",
+      "button_login": "登录",
+      "button_forgot": "忘记密码？"
+    }
+  }
+}

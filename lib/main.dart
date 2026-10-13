@@ -1,122 +1,168 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-void main() {
-  runApp(const MyApp());
+import 'core/core.dart';
+import 'ui/theme/retro_theme.dart';
+import 'ui/views/login/login_view.dart';
+import 'ui/widgets/retro_app_bar.dart';
+import 'ui/widgets/retro_bottom_bar.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await AppDatabase.instance.init();
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      systemNavigationBarColor: Color(0xFF121212),
+      systemNavigationBarIconBrightness: Brightness.light,
+      systemNavigationBarDividerColor: Color(0xFF000000),
+      statusBarColor: Colors.transparent,
+      statusBarIconBrightness: Brightness.light,
+    ),
+  );
+
+  final client = OpenVkClient();
+  final authHandler = AuthHandler(client: client);
+
+  final savedAccount = await authHandler.restoreSession();
+
+  runApp(
+    OpenVkApp(
+      authHandler: authHandler,
+      client: client,
+      initialAccount: savedAccount,
+    ),
+  );
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+class OpenVkApp extends StatefulWidget {
+  final AuthHandler authHandler;
+  final OpenVkClient client;
+  final SavedAccount? initialAccount;
 
-  // This widget is the root of your application.
+  const OpenVkApp({
+    super.key,
+    required this.authHandler,
+    required this.client,
+    this.initialAccount,
+  });
+
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: .fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
+  State<OpenVkApp> createState() => _OpenVkAppState();
+}
+
+class _OpenVkAppState extends State<OpenVkApp> {
+  SavedAccount? _currentAccount;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentAccount = widget.initialAccount;
   }
-}
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
+  void _onLoginSuccess() async {
+    final account = await widget.authHandler.restoreSession();
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _currentAccount = account;
+    });
+  }
+
+  void _onLogout() async {
+    await widget.authHandler.logout();
+    setState(() {
+      _currentAccount = null;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    return MaterialApp(
+      title: 'OpenVK',
+      debugShowCheckedModeBanner: false,
+      theme: RetroTheme.themeData,
+      home: _currentAccount == null
+          ? LoginView(
+              authHandler: widget.authHandler,
+              onLoginSuccess: _onLoginSuccess,
+            )
+          : RetroHomeScreen(account: _currentAccount!, onLogout: _onLogout),
+    );
+  }
+}
+
+class RetroHomeScreen extends StatefulWidget {
+  final SavedAccount account;
+  final VoidCallback onLogout;
+
+  const RetroHomeScreen({
+    super.key,
+    required this.account,
+    required this.onLogout,
+  });
+
+  @override
+  State<RetroHomeScreen> createState() => _RetroHomeScreenState();
+}
+
+class _RetroHomeScreenState extends State<RetroHomeScreen> {
+  RetroTab _currentTab = RetroTab.news;
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
+      appBar: RetroAppBar(
+        title: _getTabTitle(_currentTab),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout, size: 20),
+            tooltip: 'Выйти',
+            onPressed: widget.onLogout,
+          ),
+        ],
       ),
       body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
         child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: .center,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Text('You have pushed the button this many times:'),
             Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+              'Добро пожаловать, ${widget.account.name}!',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: RetroTheme.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'ID пользователя: ${widget.account.userId}',
+              style: const TextStyle(
+                fontSize: 14,
+                color: RetroTheme.textSecondary,
+              ),
             ),
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
+      bottomNavigationBar: RetroBottomBar(
+        currentTab: _currentTab,
+        onTabSelected: (tab) => setState(() => _currentTab = tab),
       ),
     );
+  }
+
+  String _getTabTitle(RetroTab tab) {
+    switch (tab) {
+      case RetroTab.news:
+        return 'Новости';
+      case RetroTab.wall:
+        return 'Стена';
+      case RetroTab.messages:
+        return 'Сообщения';
+      case RetroTab.friends:
+        return 'Друзья';
+      case RetroTab.media:
+        return 'Медиа';
+    }
   }
 }
