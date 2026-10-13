@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 enum RetroTab { news, wall, messages, friends, media }
 
 class RetroBottomBar extends StatelessWidget {
-  final RetroTab currentTab;
+  final RetroTab? currentTab;
   final ValueChanged<RetroTab> onTabSelected;
   final int unreadMessagesCount;
 
   const RetroBottomBar({
     super.key,
-    required this.currentTab,
+    this.currentTab,
     required this.onTabSelected,
     this.unreadMessagesCount = 0,
   });
@@ -77,29 +77,30 @@ class RetroBottomBar extends StatelessWidget {
             builder: (context, constraints) {
               const tabCount = 5;
               final tabWidth = constraints.maxWidth / tabCount;
-              final activeIndex = RetroTab.values
-                  .indexOf(currentTab)
-                  .clamp(0, tabCount - 1);
+              final activeIndex = currentTab != null
+                  ? RetroTab.values.indexOf(currentTab!).clamp(0, tabCount - 1)
+                  : -1;
 
               return SizedBox(
                 height: 52,
                 child: Stack(
                   clipBehavior: Clip.none,
                   children: [
-                    AnimatedPositioned(
-                      duration: const Duration(milliseconds: 240),
-                      curve: Curves.easeOutCubic,
-                      left: activeIndex * tabWidth,
-                      width: tabWidth,
-                      top: -2,
-                      bottom: -2,
-                      child: Center(
-                        child: Image.asset(
-                          'assets/navbar/ico/select_window.png',
-                          fit: BoxFit.contain,
+                    if (activeIndex >= 0)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 240),
+                        curve: Curves.easeOutCubic,
+                        left: activeIndex * tabWidth,
+                        width: tabWidth,
+                        top: -2,
+                        bottom: -2,
+                        child: Center(
+                          child: Image.asset(
+                            'assets/navbar/ico/select_window.png',
+                            fit: BoxFit.contain,
+                          ),
                         ),
                       ),
-                    ),
 
                     Row(
                       children: tabs.map((cfg) {
@@ -129,7 +130,7 @@ class RetroBottomBar extends StatelessWidget {
     required String inactiveIcon,
     int badgeCount = 0,
   }) {
-    final isSelected = tab == currentTab;
+    final isSelected = currentTab != null && tab == currentTab;
 
     return Expanded(
       child: GestureDetector(

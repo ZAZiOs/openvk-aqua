@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'retro_loading_indicator.dart';
+
 class RetroAvatar extends StatelessWidget {
   final String? url;
   final String fallbackText;
@@ -44,6 +46,12 @@ class RetroAvatar extends StatelessWidget {
                     width: size,
                     height: size,
                     fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) return child;
+                      return Center(
+                        child: RetroLoadingIndicator(size: size * 0.5),
+                      );
+                    },
                     errorBuilder: (_, __, ___) => _buildPlaceholder(),
                   )
                 : _buildPlaceholder(),

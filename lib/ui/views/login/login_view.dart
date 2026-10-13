@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/api/auth_handler.dart';
+import '../../widgets/retro_loading_indicator.dart';
 
 class CustomButton extends StatefulWidget {
   final String text;
@@ -737,7 +738,7 @@ class _LoginViewState extends State<LoginView> {
       child: Container(
         color: Colors.black.withValues(alpha: 0.6),
         child: const Center(
-          child: CircularProgressIndicator(color: Color(0xFF4983BA)),
+          child: RetroLoadingIndicator(size: 38),
         ),
       ),
     );
@@ -1029,14 +1030,7 @@ Widget _buildModalButton({
             onTap: isLoading ? null : onTap,
             child: Center(
               child: isLoading
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 2,
-                      ),
-                    )
+                  ? const RetroLoadingIndicator(size: 18)
                   : Text(
                       text,
                       style: const TextStyle(

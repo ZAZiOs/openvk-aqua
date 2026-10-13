@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/retro_theme.dart';
+import 'retro_loading_indicator.dart';
 
 class RetroButton extends StatefulWidget {
   final String text;
@@ -71,15 +72,8 @@ class _RetroButtonState extends State<RetroButton> {
           ),
           padding: widget.padding,
           child: widget.isLoading
-              ? const SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: Center(
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white,
-                    ),
-                  ),
+              ? const Center(
+                  child: RetroLoadingIndicator(size: 20),
                 )
               : Text(
                   widget.text,
