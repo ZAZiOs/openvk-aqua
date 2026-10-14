@@ -8,6 +8,7 @@ import '../../theme/retro_theme.dart';
 import '../../widgets/retro_chat_avatar.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
+import '../wall/wall_view.dart';
 import 'chat_conversation_view.dart';
 
 class MessagesView extends StatefulWidget {
@@ -506,7 +507,7 @@ class _MessagesViewState extends State<MessagesView> {
                   builder: (context, item, _) {
                     return ValueListenableBuilder<int>(
                       valueListenable: widget.client.userCache.revision,
-                      builder: (context, _, __) {
+                      builder: (context, _, _) {
                         return _buildConversationTile(item);
                       },
                     );
@@ -530,11 +531,25 @@ class _MessagesViewState extends State<MessagesView> {
       MaterialPageRoute(
         builder: (context) => ChatConversationView(
           client: widget.client,
+          account: widget.account,
           conversation: item,
           title: title,
           avatarUrl: avatarUrl,
           memberAvatars: memberAvatars,
           currentUserId: widget.account.userId,
+        ),
+      ),
+    );
+  }
+
+  void _openUserProfile(int userId) {
+    if (userId <= 0) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => WallView(
+          client: widget.client,
+          account: widget.account,
+          ownerId: userId,
         ),
       ),
     );
@@ -583,13 +598,22 @@ class _MessagesViewState extends State<MessagesView> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Retro Avatar: if chat has no cover photo, renders a 2x2 grid of up to 4 participants!
-                  RetroChatAvatar(
-                    avatarUrl: avatarUrl,
-                    members: memberAvatars,
-                    fallbackText: title,
-                    size: 50,
-                    isOnline: isUserOnline,
+                  // Retro Avatar: tapping avatar in 1-on-1 dialog opens user profile
+                  GestureDetector(
+                    onTap: () {
+                      if (item.peerId > 0 && !item.isChat) {
+                        _openUserProfile(item.peerId);
+                      } else {
+                        _openChat(item);
+                      }
+                    },
+                    child: RetroChatAvatar(
+                      avatarUrl: avatarUrl,
+                      members: memberAvatars,
+                      fallbackText: title,
+                      size: 50,
+                      isOnline: isUserOnline,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   // Chat title, message snippet, and timestamp

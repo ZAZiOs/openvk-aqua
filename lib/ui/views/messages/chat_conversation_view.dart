@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/api/auth_handler.dart';
 import '../../../core/api/messages_handler.dart';
 import '../../../core/api/openvk_client.dart';
 import '../../../core/models/conversation.dart';
@@ -12,9 +13,11 @@ import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_attachment_grid.dart';
 import '../../widgets/retro_chat_avatar.dart';
 import '../../widgets/retro_loading_indicator.dart';
+import '../wall/wall_view.dart';
 
 class ChatConversationView extends StatefulWidget {
   final OpenVkClient client;
+  final SavedAccount account;
   final ConversationItem conversation;
   final String title;
   final String? avatarUrl;
@@ -24,6 +27,7 @@ class ChatConversationView extends StatefulWidget {
   const ChatConversationView({
     super.key,
     required this.client,
+    required this.account,
     required this.conversation,
     required this.title,
     this.avatarUrl,
@@ -55,6 +59,19 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   GlobalKey _getKeyForMessage(int id) =>
       _messageKeys.putIfAbsent(id, () => GlobalKey());
+
+  void _openUserProfile(int userId) {
+    if (userId <= 0) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => WallView(
+          client: widget.client,
+          account: widget.account,
+          ownerId: userId,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -382,50 +399,57 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     return Scaffold(
       appBar: RetroAppBar(
         showBackButton: true,
-        titleWidget: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RetroChatAvatar(
-              avatarUrl: widget.avatarUrl,
-              members: widget.memberAvatars,
-              fallbackText: widget.title,
-              size: 34,
-            ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(
-                          color: Color(0x99000000),
-                          offset: Offset(0, -1),
-                          blurRadius: 1,
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (widget.conversation.isChat)
+        titleWidget: GestureDetector(
+          onTap: () {
+            if (widget.conversation.peerId > 0 && !widget.conversation.isChat) {
+              _openUserProfile(widget.conversation.peerId);
+            }
+          },
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RetroChatAvatar(
+                avatarUrl: widget.avatarUrl,
+                members: widget.memberAvatars,
+                fallbackText: widget.title,
+                size: 34,
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      '${widget.conversation.chatSettings?.membersCount ?? 2} участников',
+                      widget.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: Color(0xFFC8D7E8),
-                        fontSize: 11,
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        shadows: [
+                          Shadow(
+                            color: Color(0x99000000),
+                            offset: Offset(0, -1),
+                            blurRadius: 1,
+                          ),
+                        ],
                       ),
                     ),
-                ],
+                    if (widget.conversation.isChat)
+                      Text(
+                        '${widget.conversation.chatSettings?.membersCount ?? 2} участников',
+                        style: const TextStyle(
+                          color: Color(0xFFC8D7E8),
+                          fontSize: 11,
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
       body: Container(
@@ -657,10 +681,13 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         children: [
           if (!isOut) ...[
             if (isLastInGroup)
-              RetroChatAvatar(
-                avatarUrl: sender?.avatarUrl,
-                fallbackText: sender?.firstName ?? '?',
-                size: 32,
+              GestureDetector(
+                onTap: () => _openUserProfile(message.fromId),
+                child: RetroChatAvatar(
+                  avatarUrl: sender?.avatarUrl,
+                  fallbackText: sender?.firstName ?? '?',
+                  size: 32,
+                ),
               )
             else
               const SizedBox(width: 32),
@@ -702,12 +729,15 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                   if (!isOut && widget.conversation.isChat && isFirstInGroup)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        senderName,
-                        style: const TextStyle(
-                          color: RetroTheme.textLink,
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.bold,
+                      child: GestureDetector(
+                        onTap: () => _openUserProfile(message.fromId),
+                        child: Text(
+                          senderName,
+                          style: const TextStyle(
+                            color: RetroTheme.textLink,
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ),
@@ -872,10 +902,13 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         children: [
           if (!isOut) ...[
             if (isLastInGroup)
-              RetroChatAvatar(
-                avatarUrl: sender?.avatarUrl,
-                fallbackText: sender?.firstName ?? '?',
-                size: 32,
+              GestureDetector(
+                onTap: () => _openUserProfile(message.fromId),
+                child: RetroChatAvatar(
+                  avatarUrl: sender?.avatarUrl,
+                  fallbackText: sender?.firstName ?? '?',
+                  size: 32,
+                ),
               )
             else
               const SizedBox(width: 32),

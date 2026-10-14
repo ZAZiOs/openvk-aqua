@@ -8,6 +8,7 @@ import '../../../core/api/wall_handler.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/user.dart';
 import '../../theme/retro_theme.dart';
+import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_avatar.dart';
 import '../../widgets/retro_button.dart';
 import '../../widgets/retro_loading_indicator.dart';
@@ -332,11 +333,34 @@ class _WallViewState extends State<WallView>
     _loadPosts(refresh: true);
   }
 
+  void _openUserProfile(int userId) {
+    if (userId <= 0) return;
+    if (userId == _targetId) return;
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => WallView(
+          client: widget.client,
+          account: widget.account,
+          ownerId: userId,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canPop = ModalRoute.of(context)?.canPop ?? false;
+
     if (_user == null) {
       return Scaffold(
         backgroundColor: const Color(0xFFD3DBE3),
+        appBar: canPop
+            ? const RetroAppBar(
+                showBackButton: true,
+                title: 'Страница пользователя',
+              )
+            : null,
         body: Center(
           child: _isLoadingProfile
               ? const Column(
@@ -390,6 +414,12 @@ class _WallViewState extends State<WallView>
 
     return Scaffold(
       backgroundColor: const Color(0xFFD3DBE3),
+      appBar: canPop
+          ? RetroAppBar(
+              showBackButton: true,
+              title: _user!.fullName.isNotEmpty ? _user!.fullName : 'Страница пользователя',
+            )
+          : null,
       body: RetroPullToRefresh(
         onRefresh: _handleRefresh,
         backgroundColor: const Color(0xFF344454),
@@ -440,6 +470,7 @@ class _WallViewState extends State<WallView>
                       onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
                           ? () => _handleDeletePost(post)
                           : null,
+                      onAuthorTap: _openUserProfile,
                     );
                   },
                 ),
@@ -801,18 +832,21 @@ class _WallViewState extends State<WallView>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Filter Pills: "Все записи" / "Мои записи"
+          // Filter Pills: "Все записи" / "Мои записи" (или "Записи автора")
           Row(
             children: [
               _buildFilterPill('all', 'Все записи'),
               const SizedBox(width: 8),
-              _buildFilterPill('owner', 'Мои записи'),
+              _buildFilterPill(
+                'owner',
+                _isMyWall ? 'Мои записи' : 'Записи ${_user?.firstName ?? 'автора'}',
+              ),
             ],
           ),
 
           const SizedBox(height: 10),
 
-          // Post Input Bar: [+] [Что нового?  ] [->]
+          // Post Input Bar: [+] [Что нового? / Написать на стене...  ] [->]
           Row(
             children: [
               // (+) attachment button
@@ -859,9 +893,9 @@ class _WallViewState extends State<WallView>
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _submitPost(),
                     style: const TextStyle(fontSize: 13.5, color: RetroTheme.textPrimary),
-                    decoration: const InputDecoration(
-                      hintText: 'Что нового?',
-                      hintStyle: TextStyle(
+                    decoration: InputDecoration(
+                      hintText: _isMyWall ? 'Что нового?' : 'Написать на стене...',
+                      hintStyle: const TextStyle(
                         color: Color(0xFF8899AA),
                         fontSize: 13.5,
                       ),

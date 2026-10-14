@@ -84,6 +84,95 @@ class RetroTheme {
           systemNavigationBarDividerColor: Color(0xFF000000),
         ),
       ),
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: RetroZoomPageTransitionsBuilder(),
+          TargetPlatform.iOS: RetroZoomPageTransitionsBuilder(),
+          TargetPlatform.macOS: RetroZoomPageTransitionsBuilder(),
+          TargetPlatform.windows: RetroZoomPageTransitionsBuilder(),
+          TargetPlatform.linux: RetroZoomPageTransitionsBuilder(),
+          TargetPlatform.fuchsia: RetroZoomPageTransitionsBuilder(),
+        },
+      ),
+    );
+  }
+}
+
+/// Retro iOS-style zoom transition from center with depth.
+class RetroZoomPageTransitionsBuilder extends PageTransitionsBuilder {
+  const RetroZoomPageTransitionsBuilder();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    // Primary animation: zoom in from center (0.85 -> 1.0) and fade in
+    final primaryScale = Tween<double>(
+      begin: 0.85,
+      end: 1.0,
+    ).animate(
+      CurvedAnimation(
+        parent: animation,
+        curve: const Cubic(0.16, 1.0, 0.3, 1.0),
+        reverseCurve: Curves.easeInCubic,
+      ),
+    );
+
+    final primaryFade = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(
+      CurvedAnimation(
+        parent: animation,
+        curve: const Interval(0.0, 0.65, curve: Curves.easeOut),
+        reverseCurve: const Interval(0.35, 1.0, curve: Curves.easeIn),
+      ),
+    );
+
+    // Secondary animation: when a new route is pushed on top of this one,
+    // this route scales down slightly (1.0 -> 0.94) and subtly dims.
+    final secondaryScale = Tween<double>(
+      begin: 1.0,
+      end: 0.94,
+    ).animate(
+      CurvedAnimation(
+        parent: secondaryAnimation,
+        curve: const Cubic(0.16, 1.0, 0.3, 1.0),
+        reverseCurve: Curves.easeInCubic,
+      ),
+    );
+
+    final secondaryFade = Tween<double>(
+      begin: 1.0,
+      end: 0.70,
+    ).animate(
+      CurvedAnimation(
+        parent: secondaryAnimation,
+        curve: Curves.easeOut,
+        reverseCurve: Curves.easeIn,
+      ),
+    );
+
+    final Widget incomingChild = FadeTransition(
+      opacity: primaryFade,
+      child: ScaleTransition(
+        scale: primaryScale,
+        alignment: Alignment.center,
+        child: child,
+      ),
+    );
+
+    return FadeTransition(
+      opacity: secondaryFade,
+      child: ScaleTransition(
+        scale: secondaryScale,
+        alignment: Alignment.center,
+        child: incomingChild,
+      ),
     );
   }
 }

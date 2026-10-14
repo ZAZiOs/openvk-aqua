@@ -200,20 +200,26 @@ class _WallPostCardState extends State<WallPostCard> {
                     for (final repost in post.copyHistory) ...[
                       Row(
                         children: [
-                          RetroAvatar(
-                            url: repost.authorAvatarUrl,
-                            size: 28,
-                            fallbackText: repost.authorName.isNotEmpty
-                                ? repost.authorName[0].toUpperCase()
-                                : '?',
+                          GestureDetector(
+                            onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                            child: RetroAvatar(
+                              url: repost.authorAvatarUrl,
+                              size: 28,
+                              fallbackText: repost.authorName.isNotEmpty
+                                  ? repost.authorName[0].toUpperCase()
+                                  : '?',
+                            ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            repost.authorName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF2B5885),
+                          GestureDetector(
+                            onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                            child: Text(
+                              repost.authorName,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF2B5885),
+                              ),
                             ),
                           ),
                         ],
