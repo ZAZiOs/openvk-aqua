@@ -110,6 +110,38 @@ class CacheService {
     }
   }
 
+  Future<bool> hasAnyCachedMessagesOrConversations(String instanceId) async {
+    try {
+      final results = await _db.rawQuery(
+        "SELECT 1 FROM cache_entries WHERE instance_id = ? AND (tag = 'messages_conversations' OR tag LIKE 'history_%') LIMIT 1",
+        [instanceId],
+      );
+      return results.isNotEmpty;
+    } catch (e) {
+      debugPrint('[CacheService] Ошибка проверки кэша сообщений: $e');
+      return false;
+    }
+  }
+
+  Future<bool> hasEntriesWithTag({
+    required String tag,
+    required String instanceId,
+  }) async {
+    try {
+      final results = await _db.query(
+        'cache_entries',
+        columns: ['key'],
+        where: 'instance_id = ? AND tag = ?',
+        whereArgs: [instanceId, tag],
+        limit: 1,
+      );
+      return results.isNotEmpty;
+    } catch (e) {
+      debugPrint('[CacheService] Ошибка проверки записей по тегу ($tag): $e');
+      return false;
+    }
+  }
+
   Future<int> cleanExpired() async {
     try {
       final now = DateTime.now().millisecondsSinceEpoch;

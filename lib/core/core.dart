@@ -1,9 +1,11 @@
 export 'api/api_response.dart';
 export 'api/auth_handler.dart';
+export 'api/longpoll/longpoll_service.dart';
 export 'api/messages_handler.dart';
 export 'api/openvk_client.dart';
 export 'cache/cache_policy.dart';
 export 'cache/cache_service.dart';
+export 'store/messenger_store.dart';
 export 'db/app_database.dart';
 export 'models/attachment.dart';
 export 'models/conversation.dart';

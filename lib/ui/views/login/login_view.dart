@@ -805,12 +805,10 @@ class _LoginViewState extends State<LoginView> {
 class _RetroModalDialog extends StatelessWidget {
   final Widget child;
   final VoidCallback onClose;
-  final double width;
 
   const _RetroModalDialog({
     required this.child,
     required this.onClose,
-    this.width = 300,
   });
 
   @override
@@ -821,7 +819,7 @@ class _RetroModalDialog extends StatelessWidget {
       insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
       child: Center(
         child: SizedBox(
-          width: width,
+          width: 300,
           child: Stack(
             clipBehavior: Clip.none,
             children: [

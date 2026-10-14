@@ -198,13 +198,6 @@ class RetroMenuButton extends StatelessWidget {
               end: Alignment.bottomCenter,
               colors: [Color(0xFF4C75A3), Color(0xFF2A5280)],
             ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x40000000),
-                offset: Offset(0, 1),
-                blurRadius: 2,
-              ),
-            ],
           ),
           child: Center(
             child: Column(

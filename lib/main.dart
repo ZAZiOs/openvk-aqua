@@ -1,13 +1,18 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core/core.dart';
 import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
+import 'ui/views/messages/messages_view.dart';
 import 'ui/views/settings/settings_view.dart';
 import 'ui/widgets/retro_app_bar.dart';
 import 'ui/widgets/retro_bottom_bar.dart';
 import 'ui/widgets/retro_loading_indicator.dart';
+import 'ui/widgets/retro_pull_to_refresh.dart';
+import 'ui/widgets/retro_segmented_control.dart';
 import 'ui/widgets/retro_sidebar.dart';
 
 void main() async {
@@ -84,23 +89,47 @@ class _OpenVkAppState extends State<OpenVkApp> {
       title: 'OpenVK',
       debugShowCheckedModeBanner: false,
       theme: RetroTheme.themeData,
+      scrollBehavior: const RetroScrollBehavior(),
       home: _currentAccount == null
           ? LoginView(
               authHandler: widget.authHandler,
               onLoginSuccess: _onLoginSuccess,
             )
-          : RetroHomeScreen(account: _currentAccount!, onLogout: _onLogout),
+          : RetroHomeScreen(
+              account: _currentAccount!,
+              client: widget.client,
+              onLogout: _onLogout,
+            ),
     );
+  }
+}
+
+class RetroScrollBehavior extends MaterialScrollBehavior {
+  const RetroScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    return const BouncingScrollPhysics(parent: AlwaysScrollableScrollPhysics());
   }
 }
 
 class RetroHomeScreen extends StatefulWidget {
   final SavedAccount account;
+  final OpenVkClient client;
   final VoidCallback? onLogout;
 
   const RetroHomeScreen({
     super.key,
     required this.account,
+    required this.client,
     this.onLogout,
   });
 
@@ -111,6 +140,7 @@ class RetroHomeScreen extends StatefulWidget {
 class _RetroHomeScreenState extends State<RetroHomeScreen>
     with SingleTickerProviderStateMixin {
   RetroSection _currentSection = RetroSection.news;
+  String _messagesFilter = 'all';
   late final AnimationController _drawerController;
   double _currentSidebarWidth = 260.0;
   bool _canDrag = false;
@@ -234,6 +264,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
                 child: _buildMainContent(
                   isWide: true,
                   hideBottomBar: hideBottomBar,
+                  screenWidth: constraints.maxWidth,
                 ),
               ),
             ],
@@ -254,12 +285,19 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
                   final double xOffset = -50.0 * (1.0 - progress);
                   final double opacity =
                       (0.4 + 0.6 * progress).clamp(0.0, 1.0);
+                  final bool isClosed = progress == 0;
 
                   return Transform.translate(
                     offset: Offset(xOffset, 0),
                     child: Opacity(
                       opacity: opacity,
-                      child: child,
+                      child: IgnorePointer(
+                        ignoring: isClosed,
+                        child: ExcludeSemantics(
+                          excluding: isClosed,
+                          child: child,
+                        ),
+                      ),
                     ),
                   );
                 },
@@ -283,18 +321,17 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
                   return Transform.translate(
                     offset: Offset(x, 0),
                     child: Container(
-                      decoration: isOpen
-                          ? BoxDecoration(
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.55),
-                                  blurRadius: 20,
-                                  spreadRadius: 2,
-                                  offset: const Offset(-4, 0),
-                                ),
-                              ],
-                            )
-                          : null,
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          if (isOpen)
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              blurRadius: 20,
+                              spreadRadius: 2,
+                              offset: const Offset(-4, 0),
+                            ),
+                        ],
+                      ),
                       child: child,
                     ),
                   );
@@ -304,29 +341,36 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
                     _buildMainContent(
                       isWide: false,
                       hideBottomBar: hideBottomBar,
+                      screenWidth: constraints.maxWidth,
                     ),
-                    AnimatedBuilder(
-                      animation: _drawerController,
-                      builder: (context, _) {
-                        if (_drawerController.value == 0) {
-                          return const SizedBox.shrink();
-                        }
-                        return Positioned.fill(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _drawerController.animateTo(
-                              0.0,
-                              duration: const Duration(milliseconds: 200),
-                              curve: Curves.easeOutCubic,
-                            ),
-                            child: Container(
-                              color: Colors.black.withValues(
-                                alpha: 0.2 * _drawerController.value,
+                    Positioned.fill(
+                      child: AnimatedBuilder(
+                        animation: _drawerController,
+                        builder: (context, _) {
+                          final double val = _drawerController.value;
+                          final bool isClosed = val == 0;
+
+                          return IgnorePointer(
+                            ignoring: isClosed,
+                            child: ExcludeSemantics(
+                              excluding: isClosed,
+                              child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => _drawerController.animateTo(
+                                  0.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeOutCubic,
+                                ),
+                                child: Container(
+                                  color: Colors.black.withValues(
+                                    alpha: 0.2 * val,
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
                   ],
                 ),
@@ -341,11 +385,32 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
   Widget _buildMainContent({
     required bool isWide,
     required bool hideBottomBar,
+    double screenWidth = double.infinity,
   }) {
+    final bool isMessages = _currentSection == RetroSection.messages;
+    final bool hideSidebar = isWide || (isMessages && screenWidth < 360);
+
+    Widget? appBarTitleWidget;
+    String? appBarTitle = _currentSection.title;
+
+    if (isMessages) {
+      appBarTitle = null;
+      appBarTitleWidget = RetroSegmentedControl<String>(
+        tabs: const {
+          'all': 'Все',
+          'unread': 'Непрочитанные',
+        },
+        selected: _messagesFilter,
+        onSelected: (filter) => setState(() => _messagesFilter = filter),
+        hasShadow: false,
+      );
+    }
+
     return Scaffold(
       appBar: RetroAppBar(
-        title: _currentSection.title,
-        leading: isWide ? null : RetroMenuButton(onPressed: _toggleDrawer),
+        title: appBarTitle,
+        titleWidget: appBarTitleWidget,
+        leading: hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer),
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -402,6 +467,112 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
   Widget _buildSectionBody() {
     if (_currentSection == RetroSection.settings) {
       return SettingsView(onLogout: widget.onLogout);
+    }
+
+    if (_currentSection == RetroSection.messages) {
+      return MessagesView(
+        key: const PageStorageKey('messages_view'),
+        client: widget.client,
+        account: widget.account,
+        filter: _messagesFilter,
+      );
+    }
+    if (_currentSection == RetroSection.news) {
+      return RetroPullToRefresh(
+        onRefresh: () async {
+          await Future.delayed(const Duration(milliseconds: 1000));
+        },
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: const Color(0xFFD6DCE5), width: 1),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x0E000000),
+                    offset: Offset(0, 1),
+                    blurRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(4),
+                          gradient: const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFF5B88BD), Color(0xFF386498)],
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'OVK',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'тест openvk',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.bold,
+                                color: RetroTheme.textPrimary,
+                              ),
+                            ),
+                            SizedBox(height: 2),
+                            Text(
+                              '6 минут назад',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: RetroTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.more_vert,
+                        color: Color(0xFF8B98A7),
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Запись для проверки данных, потяните вниз чтобы запустить обновление.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: RetroTheme.textPrimary,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
     return Center(

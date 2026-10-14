@@ -7,8 +7,10 @@ import 'package:http/http.dart' as http;
 
 import '../cache/cache_policy.dart';
 import '../cache/cache_service.dart';
+import '../store/messenger_store.dart';
 import '../utils/json_safe.dart';
 import 'api_response.dart';
+import 'longpoll/longpoll_service.dart';
 
 enum HttpMethod { get, post }
 
@@ -27,7 +29,10 @@ class OpenVkClient {
 
   bool enableLogging;
 
-  CacheService? cacheService;
+  CacheService cacheService;
+
+  late final MessengerStore messengerStore;
+  late final LongPollService longPollService;
 
   OpenVkClient({
     this.baseUrl = 'https://api.openvk.org',
@@ -36,10 +41,17 @@ class OpenVkClient {
     this.apiVersion = '5.131',
     this.timeout = const Duration(seconds: 15),
     this.enableLogging = kDebugMode,
-    this.cacheService,
+    CacheService? cacheService,
     http.Client? httpClient,
   }) : instanceId = instanceId ?? _deriveInstanceId(baseUrl),
-       _httpClient = httpClient ?? http.Client();
+       cacheService = cacheService ?? CacheService(),
+       _httpClient = httpClient ?? http.Client() {
+    messengerStore = MessengerStore();
+    longPollService = LongPollService(
+      client: this,
+      store: messengerStore,
+    );
+  }
 
   static String _deriveInstanceId(String url) {
     try {
@@ -66,6 +78,8 @@ class OpenVkClient {
 
   void clearToken() {
     accessToken = null;
+    longPollService.stop();
+    messengerStore.clear();
   }
 
   Future<ApiResponse<T>> call<T>(
@@ -180,8 +194,7 @@ class OpenVkClient {
   }) async {
     final effectiveCacheService = cacheService;
 
-    if (effectiveCacheService == null ||
-        cachePolicy == CachePolicy.networkOnly) {
+    if (cachePolicy == CachePolicy.networkOnly) {
       return call<T>(
         method,
         httpMethod: httpMethod,

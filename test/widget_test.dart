@@ -40,14 +40,20 @@ void main() {
       isActive: true,
     );
 
+    final client = OpenVkClient();
+
     await tester.pumpWidget(
-      const MaterialApp(
-        home: RetroHomeScreen(account: account, onLogout: _dummyLogout),
+      MaterialApp(
+        home: RetroHomeScreen(
+          account: account,
+          client: client,
+          onLogout: _dummyLogout,
+        ),
       ),
     );
 
     expect(find.byType(RetroAppBar), findsOneWidget);
-    expect(find.text('Work in progress'), findsOneWidget);
+    expect(find.text('тест openvk'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -68,10 +74,15 @@ void main() {
       instanceId: 1,
       isActive: true,
     );
+    final client = OpenVkClient();
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: RetroHomeScreen(account: account, onLogout: _dummyLogout),
+      MaterialApp(
+        home: RetroHomeScreen(
+          account: account,
+          client: client,
+          onLogout: _dummyLogout,
+        ),
       ),
     );
 
@@ -95,10 +106,15 @@ void main() {
       instanceId: 1,
       isActive: true,
     );
+    final client = OpenVkClient();
 
     await tester.pumpWidget(
-      const MaterialApp(
-        home: RetroHomeScreen(account: account, onLogout: _dummyLogout),
+      MaterialApp(
+        home: RetroHomeScreen(
+          account: account,
+          client: client,
+          onLogout: _dummyLogout,
+        ),
       ),
     );
 

@@ -9,6 +9,7 @@ class Message {
   final String text;
   final bool isOut;
   final bool isImportant;
+  final bool isUnread;
   final List<Attachment> attachments;
   final List<Message> fwdMessages;
   final Message? replyMessage;
@@ -24,6 +25,7 @@ class Message {
     required this.text,
     required this.isOut,
     required this.isImportant,
+    this.isUnread = false,
     required this.attachments,
     required this.fwdMessages,
     this.replyMessage,
@@ -49,6 +51,41 @@ class Message {
     return '...';
   }
 
+  Message copyWith({
+    int? id,
+    int? date,
+    int? peerId,
+    int? fromId,
+    String? text,
+    bool? isOut,
+    bool? isImportant,
+    bool? isUnread,
+    List<Attachment>? attachments,
+    List<Message>? fwdMessages,
+    Message? replyMessage,
+    MessageAction? action,
+    int? conversationMessageId,
+    int? updateTime,
+  }) {
+    return Message(
+      id: id ?? this.id,
+      date: date ?? this.date,
+      peerId: peerId ?? this.peerId,
+      fromId: fromId ?? this.fromId,
+      text: text ?? this.text,
+      isOut: isOut ?? this.isOut,
+      isImportant: isImportant ?? this.isImportant,
+      isUnread: isUnread ?? this.isUnread,
+      attachments: attachments ?? this.attachments,
+      fwdMessages: fwdMessages ?? this.fwdMessages,
+      replyMessage: replyMessage ?? this.replyMessage,
+      action: action ?? this.action,
+      conversationMessageId:
+          conversationMessageId ?? this.conversationMessageId,
+      updateTime: updateTime ?? this.updateTime,
+    );
+  }
+
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
       id: JsonSafe.toInt(json['id']),
@@ -58,6 +95,8 @@ class Message {
       text: JsonSafe.toStr(json['text']),
       isOut: JsonSafe.toBool(json['out']),
       isImportant: JsonSafe.toBool(json['important']),
+      isUnread: JsonSafe.toBool(json['unread']) ||
+          ((JsonSafe.toInt(json['flags']) & 1) != 0),
       attachments: JsonSafe.toList(
         json['attachments'],
         (a) => Attachment.fromJson(JsonSafe.toMap(a)),
@@ -85,6 +124,7 @@ class Message {
     text: '',
     isOut: false,
     isImportant: false,
+    isUnread: false,
     attachments: [],
     fwdMessages: [],
     conversationMessageId: 0,

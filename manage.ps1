@@ -1,7 +1,8 @@
 ﻿$Commands = @{
     "build-deps" = @("dart run build_runner build --delete-conflicting-outputs")
     "clean"    = @("flutter clean", "flutter pub get")
-    "test"     = @("flutter run")
+    "test"     = @("flutter run -d windows")
+    "test-a"   = @("flutter run -d android")
     "build"    = @("flutter build apk", "Move-Item -Path 'build\app\outputs\apk\release\app-release.apk' -Destination '.\ovkflutter.apk' -Force")
     "build_splash" = @("dart run flutter_native_splash:create")
 }

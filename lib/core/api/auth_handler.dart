@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -191,6 +192,9 @@ class AuthHandler {
         accessToken: accessToken,
       );
 
+      client.messengerStore.currentUserId = account.userId;
+      unawaited(client.longPollService.checkAndStart());
+
       return ApiSuccess(account);
     } catch (e) {
       debugPrint('[AuthHandler] Ошибка авторизации: $e');
@@ -232,6 +236,9 @@ class AuthHandler {
       } else {
         client.accessToken = account.accessToken;
       }
+
+      client.messengerStore.currentUserId = account.userId;
+      unawaited(client.longPollService.checkAndStart());
 
       return account;
     } catch (e) {

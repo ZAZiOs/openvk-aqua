@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import '../cache/cache_policy.dart';
@@ -19,9 +20,10 @@ class MessagesHandler {
     bool extended = true,
     CachePolicy cachePolicy = CachePolicy.networkFirst,
   }) async {
-    return _client.callCached<ConversationsResponse>(
+    final res = await _client.callCached<ConversationsResponse>(
       'messages.getConversations',
       params: {
+        'v': '5.86',
         'offset': offset,
         'count': count,
         'filter': filter,
@@ -30,10 +32,20 @@ class MessagesHandler {
       },
       cachePolicy: cachePolicy,
       cacheTag: 'messages_conversations',
-      cacheKey: 'conversations_offset_${offset}_count_$count',
+      cacheKey: 'conversations_${filter}_offset_${offset}_count_$count',
       parser: (json) => ConversationsResponse.fromJson(JsonSafe.toMap(json)),
       fallback: () => ConversationsResponse.empty(),
     );
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      _client.messengerStore.setConversations(
+        res.dataOrNull!,
+        append: offset > 0,
+      );
+      unawaited(_client.longPollService.checkAndStart());
+    }
+
+    return res;
   }
 
   Future<ApiResponse<HistoryResponse>> getHistory({
@@ -45,15 +57,16 @@ class MessagesHandler {
     CachePolicy cachePolicy = CachePolicy.networkFirst,
   }) async {
     final params = <String, dynamic>{
+      'v': '5.86',
       'peer_id': peerId,
       'offset': offset,
       'count': count,
       'extended': extended ? 1 : 0,
       'fields': 'photo_50,photo_100,online',
-      if (startMessageId != null) 'start_message_id': startMessageId,
+      'start_message_id': ?startMessageId,
     };
 
-    return _client.callCached<HistoryResponse>(
+    final res = await _client.callCached<HistoryResponse>(
       'messages.getHistory',
       params: params,
       cachePolicy: cachePolicy,
@@ -61,6 +74,32 @@ class MessagesHandler {
       cacheKey: 'history_${peerId}_offset_$offset',
       parser: (json) => HistoryResponse.fromJson(JsonSafe.toMap(json)),
       fallback: () => HistoryResponse.empty(),
+    );
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      _client.messengerStore.setHistory(
+        peerId,
+        res.dataOrNull!,
+        append: offset > 0,
+      );
+      unawaited(_client.longPollService.checkAndStart());
+    }
+
+    return res;
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getConversationMembers({
+    required int peerId,
+    String fields = 'photo_50,photo_100,online',
+  }) async {
+    return _client.call<Map<String, dynamic>>(
+      'messages.getConversationMembers',
+      params: {
+        'v': '5.86',
+        'peer_id': peerId,
+        'fields': fields,
+      },
+      parser: (json) => JsonSafe.toMap(json),
     );
   }
 
@@ -73,10 +112,11 @@ class MessagesHandler {
     final randomId = Random().nextInt(2147483647);
 
     final params = <String, dynamic>{
+      'v': '5.86',
       'peer_id': peerId,
       'random_id': randomId,
       'message': message,
-      if (replyTo != null) 'reply_to': replyTo,
+      'reply_to': ?replyTo,
       if (attachment != null && attachment.isNotEmpty) 'attachment': attachment,
     };
 
@@ -87,18 +127,32 @@ class MessagesHandler {
       parser: (json) {
         if (json is int) return json;
         if (json is num) return json.toInt();
-        if (json is Map)
+        if (json is Map) {
           return JsonSafe.toInt(json['message_id'] ?? json['id']);
+        }
         return JsonSafe.toInt(json);
       },
     );
 
-    if (result.isSuccess && _client.cacheService != null) {
-      await _client.cacheService!.invalidateByTag(
+    if (result.isSuccess) {
+      final msgId = result.dataOrNull ?? 0;
+      if (msgId > 0) {
+        final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+        _client.messengerStore.onNewMessage(
+          messageId: msgId,
+          flags: 2,
+          peerId: peerId,
+          timestamp: now,
+          text: message,
+          fromId: _client.messengerStore.currentUserId,
+        );
+      }
+
+      await _client.cacheService.invalidateByTag(
         tag: 'history_$peerId',
         instanceId: _client.instanceId,
       );
-      await _client.cacheService!.invalidateByTag(
+      await _client.cacheService.invalidateByTag(
         tag: 'messages_conversations',
         instanceId: _client.instanceId,
       );
@@ -112,8 +166,9 @@ class MessagesHandler {
     int? startMessageId,
   }) async {
     final params = <String, dynamic>{
+      'v': '5.86',
       'peer_id': peerId,
-      if (startMessageId != null) 'start_message_id': startMessageId,
+      'start_message_id': ?startMessageId,
     };
 
     return _client.call<bool>(
@@ -129,7 +184,10 @@ class MessagesHandler {
     return _client.call<bool>(
       'messages.deleteConversation',
       httpMethod: HttpMethod.post,
-      params: {'peer_id': peerId},
+      params: {
+        'v': '5.86',
+        'peer_id': peerId,
+      },
       parser: (json) => JsonSafe.toBool(json, true),
       fallback: () => false,
     );
