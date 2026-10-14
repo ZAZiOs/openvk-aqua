@@ -8,12 +8,12 @@ import 'core/core.dart';
 import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
 import 'ui/views/messages/messages_view.dart';
+import 'ui/views/newsfeed/newsfeed_view.dart';
 import 'ui/views/settings/settings_view.dart';
 import 'ui/views/wall/wall_view.dart';
 import 'ui/widgets/retro_app_bar.dart';
 import 'ui/widgets/retro_bottom_bar.dart';
 import 'ui/widgets/retro_loading_indicator.dart';
-import 'ui/widgets/retro_pull_to_refresh.dart';
 import 'ui/widgets/retro_segmented_control.dart';
 import 'ui/widgets/retro_sidebar.dart';
 
@@ -144,6 +144,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     with SingleTickerProviderStateMixin {
   RetroSection _currentSection = RetroSection.news;
   String _messagesFilter = 'all';
+  String _newsFilter = 'my';
   late final AnimationController _drawerController;
   double _currentSidebarWidth = 260.0;
   bool _canDrag = false;
@@ -423,14 +424,28 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
   }) {
     final bool isMessages = _currentSection == RetroSection.messages;
     final bool isWall = _currentSection == RetroSection.profile;
-    final bool hideSidebar = isWide || (isMessages && screenWidth < 360);
+    final bool isNews = _currentSection == RetroSection.news;
+    final bool hideSidebar = isWide || ((isMessages || isNews) && screenWidth < 360);
 
     Widget? appBarTitleWidget;
     String? appBarTitle = _currentSection.title;
     Widget? appBarLeading;
     List<Widget>? appBarActions;
 
-    if (isMessages) {
+    if (isNews) {
+      appBarTitle = null;
+      appBarTitleWidget = RetroSegmentedControl<String>(
+        tabs: const {
+          'my': 'Мои новости',
+          'global': 'Все новости',
+        },
+        selected: _newsFilter,
+        onSelected: (filter) => setState(() => _newsFilter = filter),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        hasShadow: false,
+      );
+      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
+    } else if (isMessages) {
       appBarTitle = null;
       appBarTitleWidget = RetroSegmentedControl<String>(
         tabs: const {
@@ -555,100 +570,12 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
       );
     }
     if (_currentSection == RetroSection.news) {
-      return RetroPullToRefresh(
-        onRefresh: () async {
-          await Future.delayed(const Duration(milliseconds: 1000));
-        },
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          children: [
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(color: const Color(0xFFD6DCE5), width: 1),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x0E000000),
-                    offset: Offset(0, 1),
-                    blurRadius: 2,
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 44,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(4),
-                          gradient: const LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [Color(0xFF5B88BD), Color(0xFF386498)],
-                          ),
-                        ),
-                        alignment: Alignment.center,
-                        child: const Text(
-                          'OVK',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'тест openvk',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.bold,
-                                color: RetroTheme.textPrimary,
-                              ),
-                            ),
-                            SizedBox(height: 2),
-                            Text(
-                              '6 минут назад',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: RetroTheme.textSecondary,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(
-                        Icons.more_vert,
-                        color: Color(0xFF8B98A7),
-                        size: 20,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Запись для проверки данных, потяните вниз чтобы запустить обновление.',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: RetroTheme.textPrimary,
-                      height: 1.35,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+      return NewsfeedView(
+        key: const PageStorageKey('newsfeed_view'),
+        client: widget.client,
+        account: widget.account,
+        filter: _newsFilter,
+        onFilterChanged: (filter) => setState(() => _newsFilter = filter),
       );
     }
 

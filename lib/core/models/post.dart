@@ -103,8 +103,10 @@ class Post {
     Map<int, User>? usersMap,
     Map<int, Group>? groupsMap,
   }) {
-    final fromId = JsonSafe.toInt(json['from_id']);
-    final ownerId = JsonSafe.toInt(json['owner_id']);
+    final sourceId = json['source_id'];
+    final fromId = JsonSafe.toInt(json['from_id'] ?? sourceId);
+    final ownerId = JsonSafe.toInt(json['owner_id'] ?? sourceId);
+    final id = JsonSafe.toInt(json['id'] ?? json['post_id']);
 
     // Comments map
     final comments = json['comments'] is Map ? json['comments'] : null;
@@ -145,7 +147,7 @@ class Post {
     }
 
     return Post(
-      id: JsonSafe.toInt(json['id']),
+      id: id,
       ownerId: ownerId,
       fromId: fromId,
       date: JsonSafe.toInt(json['date']),
@@ -161,7 +163,7 @@ class Post {
       canPublish: canPublish,
       repostsCount: repostsCount,
       userReposted: userReposted,
-      postType: JsonSafe.toStr(json['post_type'], 'post'),
+      postType: JsonSafe.toStr(json['post_type'] ?? json['type'], 'post'),
       attachments: attachments,
       copyHistory: copyHistory,
       author: author,
