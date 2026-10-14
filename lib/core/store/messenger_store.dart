@@ -467,6 +467,9 @@ class MessengerStore {
     final currentUnreadOrder = List<int>.from(unreadConversationOrder.value);
     if (currentUnreadOrder.remove(peerId)) {
       unreadConversationOrder.value = currentUnreadOrder;
+      if (totalUnreadCount.value > 0) {
+        totalUnreadCount.value = max(0, totalUnreadCount.value - 1);
+      }
     }
 
     final chatOrder = _chatMessageOrders[peerId];

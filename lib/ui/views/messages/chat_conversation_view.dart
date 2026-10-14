@@ -121,6 +121,10 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   Future<void> _markRead() async {
     if (widget.conversation.unreadCount > 0) {
+      widget.client.messengerStore.onReadIncoming(
+        widget.conversation.peerId,
+        widget.conversation.lastMessage.id,
+      );
       await _messagesHandler.markAsRead(peerId: widget.conversation.peerId);
     }
   }

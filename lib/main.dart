@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -154,6 +155,18 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
       vsync: this,
       duration: const Duration(milliseconds: 250),
     );
+    _initUnreadCount();
+  }
+
+  void _initUnreadCount() {
+    if (widget.account.accessToken.isNotEmpty) {
+      unawaited(
+        MessagesHandler(widget.client).getConversations(
+          count: 20,
+          cachePolicy: CachePolicy.networkFirst,
+        ),
+      );
+    }
   }
 
   @override
@@ -495,11 +508,25 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
       ),
       bottomNavigationBar: hideBottomBar
           ? null
-          : RetroBottomBar(
-              currentTab: _currentSection.bottomTab,
-              onTabSelected: (tab) => setState(
-                () => _currentSection = RetroSection.fromTab(tab),
-              ),
+          : ListenableBuilder(
+              listenable: Listenable.merge([
+                widget.client.messengerStore.totalUnreadCount,
+                widget.client.messengerStore.unreadConversationOrder,
+              ]),
+              builder: (context, _) {
+                final total =
+                    widget.client.messengerStore.totalUnreadCount.value;
+                final orderCount = widget
+                    .client.messengerStore.unreadConversationOrder.value.length;
+                final count = total > 0 ? total : orderCount;
+                return RetroBottomBar(
+                  currentTab: _currentSection.bottomTab,
+                  unreadMessagesCount: count,
+                  onTabSelected: (tab) => setState(
+                    () => _currentSection = RetroSection.fromTab(tab),
+                  ),
+                );
+              },
             ),
     );
   }

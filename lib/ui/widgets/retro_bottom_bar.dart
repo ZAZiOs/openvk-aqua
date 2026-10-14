@@ -54,7 +54,10 @@ class RetroBottomBar extends StatelessWidget {
       ),
     ];
 
-    return Container(
+    final double bottomPadding = MediaQuery.paddingOf(context).bottom;
+
+    final Widget barContent = Container(
+      height: 58,
       decoration: const BoxDecoration(
         image: DecorationImage(
           image: AssetImage('assets/navbar/navbar.png'),
@@ -69,58 +72,71 @@ class RetroBottomBar extends StatelessWidget {
           ),
         ],
       ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              const tabCount = 5;
-              final tabWidth = constraints.maxWidth / tabCount;
-              final activeIndex = currentTab != null
-                  ? RetroTab.values.indexOf(currentTab!).clamp(0, tabCount - 1)
-                  : -1;
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            const tabCount = 5;
+            final tabWidth = constraints.maxWidth / tabCount;
+            final activeIndex = currentTab != null
+                ? RetroTab.values.indexOf(currentTab!).clamp(0, tabCount - 1)
+                : -1;
 
-              return SizedBox(
-                height: 52,
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    if (activeIndex >= 0)
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 240),
-                        curve: Curves.easeOutCubic,
-                        left: activeIndex * tabWidth,
-                        width: tabWidth,
-                        top: -2,
-                        bottom: -2,
-                        child: Center(
-                          child: Image.asset(
-                            'assets/navbar/ico/select_window.png',
-                            fit: BoxFit.contain,
-                          ),
+            return SizedBox(
+              height: 52,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  if (activeIndex >= 0)
+                    AnimatedPositioned(
+                      duration: const Duration(milliseconds: 240),
+                      curve: Curves.easeOutCubic,
+                      left: activeIndex * tabWidth,
+                      width: tabWidth,
+                      top: -2,
+                      bottom: -2,
+                      child: Center(
+                        child: Image.asset(
+                          'assets/navbar/ico/select_window.png',
+                          fit: BoxFit.contain,
                         ),
                       ),
-
-                    Row(
-                      children: tabs.map((cfg) {
-                        return _buildTabItem(
-                          tab: cfg.tab,
-                          title: cfg.title,
-                          activeIcon: cfg.activeIcon,
-                          inactiveIcon: cfg.inactiveIcon,
-                          badgeCount: cfg.badge,
-                        );
-                      }).toList(),
                     ),
-                  ],
-                ),
-              );
-            },
-          ),
+
+                  Row(
+                    children: tabs.map((cfg) {
+                      return _buildTabItem(
+                        tab: cfg.tab,
+                        title: cfg.title,
+                        activeIcon: cfg.activeIcon,
+                        inactiveIcon: cfg.inactiveIcon,
+                        badgeCount: cfg.badge,
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
+
+    if (bottomPadding > 0) {
+      return Container(
+        color: Colors.black,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            barContent,
+            SizedBox(height: bottomPadding),
+          ],
+        ),
+      );
+    }
+
+    return barContent;
   }
 
   Widget _buildTabItem({
@@ -178,26 +194,12 @@ class RetroBottomBar extends StatelessWidget {
               ),
 
               if (badgeCount > 0)
-                Positioned(
-                  top: 2,
-                  right: 6,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3877B8),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white, width: 1),
-                    ),
-                    child: Text(
-                      badgeCount > 99 ? '99+' : badgeCount.toString(),
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                      ),
+                IgnorePointer(
+                  child: Align(
+                    alignment: Alignment.center,
+                    child: Transform.translate(
+                      offset: Offset(badgeCount < 10 ? 13.0 : 16.0, -13.0),
+                      child: _buildBadge(badgeCount),
                     ),
                   ),
                 ),
@@ -205,6 +207,76 @@ class RetroBottomBar extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBadge(int count) {
+    final text = count > 99 ? '99+' : count.toString();
+    final isSingleDigit = count < 10;
+
+    final gradient = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: const [
+        Color(0xFFFF4940),
+        Color(0xFFBA0707),
+      ],
+    );
+
+    final border = Border.all(
+      color: Colors.white,
+      width: 2.0,
+    );
+
+    final shadow = [
+      BoxShadow(
+        color: Colors.black.withValues(alpha: 0.5),
+        offset: const Offset(0, 1.5),
+        blurRadius: 3,
+      ),
+    ];
+
+    final textWidget = Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: isSingleDigit ? 10.5 : 9.5,
+        fontWeight: FontWeight.w900,
+        height: 1.0,
+        letterSpacing: isSingleDigit ? 0 : -0.3,
+      ),
+    );
+
+    if (isSingleDigit) {
+      return Container(
+        width: 19,
+        height: 19,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: gradient,
+          border: border,
+          boxShadow: shadow,
+        ),
+        child: textWidget,
+      );
+    }
+
+    return Container(
+      constraints: const BoxConstraints(
+        minWidth: 23,
+        minHeight: 19,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        gradient: gradient,
+        border: border,
+        boxShadow: shadow,
+      ),
+      child: textWidget,
     );
   }
 }
