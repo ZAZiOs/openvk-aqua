@@ -33,14 +33,12 @@ class DottedLeaderRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 4),
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                return CustomPaint(
-                  size: Size(constraints.maxWidth, 14),
-                  painter: _DottedLeaderPainter(color: const Color(0xFF3F546C)),
-                );
-              },
+          const Expanded(
+            child: SizedBox(
+              height: 14,
+              child: CustomPaint(
+                painter: _DottedLeaderPainter(color: Color(0xFF3F546C)),
+              ),
             ),
           ),
           const SizedBox(width: 4),
@@ -69,7 +67,7 @@ class DottedLeaderRow extends StatelessWidget {
 class _DottedLeaderPainter extends CustomPainter {
   final Color color;
 
-  _DottedLeaderPainter({required this.color});
+  const _DottedLeaderPainter({required this.color});
 
   @override
   void paint(Canvas canvas, Size size) {

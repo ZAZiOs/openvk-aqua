@@ -86,16 +86,16 @@ class WallCountersGrid extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onCounterTap != null ? () => onCounterTap!(item.keyId) : null,
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(4),
         child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: const Color(0xFF2B3947).withValues(alpha: 0.8),
-            borderRadius: BorderRadius.circular(5),
+            color: const Color(0xFF283645),
+            borderRadius: BorderRadius.circular(4),
             border: Border.all(
-              color: const Color(0xFF2E3946).withValues(alpha: 0.6),
-              width: 2,
+              color: const Color(0xFF1D2833),
+              width: 1,
             ),
           ),
           child: Column(
@@ -107,16 +107,9 @@ class WallCountersGrid extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: Color(0xFFD4E0EC),
-                  fontSize: 19,
+                  fontSize: 18,
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.2,
-                  shadows: [
-                    Shadow(
-                      color: Color(0x99000000),
-                      offset: Offset(0, 1),
-                      blurRadius: 1.5,
-                    ),
-                  ],
                 ),
               ),
               const SizedBox(height: 2),
@@ -126,8 +119,8 @@ class WallCountersGrid extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xFF71879D),
-                  fontSize: 12.5,
+                  color: Color(0xFF7E97AF),
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
                 ),
               ),

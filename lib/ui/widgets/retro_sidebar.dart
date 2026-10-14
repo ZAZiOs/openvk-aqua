@@ -134,18 +134,41 @@ class RetroSidebar extends StatelessWidget {
       ),
     ];
 
+    final double topPadding = MediaQuery.paddingOf(context).top;
+
     return Material(
       color: const Color(0xFF1E2631),
-      child: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: EdgeInsets.zero,
-          physics: const BouncingScrollPhysics(),
-          children: [
-            _buildProfileRow(context),
-            for (final item in items) _buildMenuItem(context, item),
-          ],
-        ),
+      child: Column(
+        children: [
+          // Black header zone: status bar padding + profile row (height matches RetroAppBar)
+          Container(
+            color: Colors.black,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (topPadding > 0)
+                  SizedBox(
+                    height: topPadding,
+                  ),
+                _buildProfileRow(context),
+              ],
+            ),
+          ),
+
+          // Menu items list
+          Expanded(
+            child: SafeArea(
+              top: false,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  for (final item in items) _buildMenuItem(context, item),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -153,51 +176,47 @@ class RetroSidebar extends StatelessWidget {
   Widget _buildProfileRow(BuildContext context) {
     final isSelected = currentSection == RetroSection.profile;
 
-    return InkWell(
-      onTap: () => onSectionSelected(RetroSection.profile),
-      child: Container(
-        height: 48,
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF161D26) : Colors.transparent,
-          border: const Border(
-            bottom: BorderSide(color: Color(0xFF131820), width: 1),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onSectionSelected(RetroSection.profile),
+        child: Container(
+          height: kToolbarHeight,
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF161616) : Colors.black,
+            border: const Border(
+              bottom: BorderSide(color: Color(0xFF131820), width: 1),
+            ),
           ),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Row(
-          children: [
-            RetroAvatar(
-              url: account.avatarUrl,
-              fallbackText: account.name,
-              size: 34,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                account.name,
-                style: const TextStyle(
-                  color: Color(0xFFE8EEF5),
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: -0.2,
-                  shadows: [
-                    Shadow(
-                      offset: Offset(0, 1),
-                      blurRadius: 1,
-                      color: Color(0x99000000),
-                    ),
-                  ],
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            children: [
+              RetroAvatar(
+                url: account.avatarUrl,
+                fallbackText: account.name,
+                size: 34,
               ),
-            ),
-            const Icon(
-              Icons.chevron_right,
-              size: 18,
-              color: Color(0xFF384654),
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  account.name,
+                  style: const TextStyle(
+                    color: Color(0xFFE8EEF5),
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: -0.2,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Color(0xFF4C5D6F),
+              ),
+            ],
+          ),
         ),
       ),
     );

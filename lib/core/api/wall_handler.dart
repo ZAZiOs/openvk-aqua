@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../cache/cache_policy.dart';
 import '../models/user.dart';
 import '../models/wall_response.dart';
 import '../utils/json_safe.dart';
@@ -12,15 +13,19 @@ class WallHandler {
   WallHandler(this._client);
 
   /// Fetch user detailed profile info including counters and personal fields.
-  Future<ApiResponse<User>> getProfile(int userId) async {
+  Future<ApiResponse<User>> getProfile(int userId, {bool forceRefresh = false}) async {
     const fields =
         'photo_50,photo_100,photo_max,online,status,counters,sex,bdate,city,country,'
         'home_town,about,activities,books,games,interests,movies,music,tv,quotes,'
         'screen_name,nickname,relation,relation_partner,personal,site,connections,'
         'registration_date,created_at,reg_date';
 
-    final res = await _client.call<User>(
+    final res = await _client.callCached<User>(
       'users.get',
+      cacheKey: 'profile_$userId',
+      cacheTag: 'profile_$userId',
+      cachePolicy: forceRefresh ? CachePolicy.networkOnly : CachePolicy.cacheFirst,
+      cacheTtl: const Duration(days: 1),
       params: {
         'user_ids': userId,
         'fields': fields,
@@ -51,20 +56,40 @@ class WallHandler {
     int offset = 0,
     int count = 20,
     String filter = 'all',
+    bool forceRefresh = false,
   }) async {
-    final res = await _client.call<WallResponse>(
-      'wall.get',
-      params: {
-        'owner_id': ownerId,
-        'offset': offset,
-        'count': count,
-        'filter': filter,
-        'extended': 1,
-        'fields': 'photo_50,photo_100,online',
-      },
-      parser: (json) => WallResponse.fromJson(JsonSafe.toMap(json)),
-      fallback: () => WallResponse.empty(),
-    );
+    final isFirstPage = offset == 0;
+    final res = isFirstPage
+        ? await _client.callCached<WallResponse>(
+            'wall.get',
+            cacheKey: 'wall_${ownerId}_$filter',
+            cacheTag: 'wall_$ownerId',
+            cachePolicy: forceRefresh ? CachePolicy.networkOnly : CachePolicy.cacheFirst,
+            cacheTtl: const Duration(hours: 1),
+            params: {
+              'owner_id': ownerId,
+              'offset': offset,
+              'count': count,
+              'filter': filter,
+              'extended': 1,
+              'fields': 'photo_50,photo_100,online',
+            },
+            parser: (json) => WallResponse.fromJson(JsonSafe.toMap(json)),
+            fallback: () => WallResponse.empty(),
+          )
+        : await _client.call<WallResponse>(
+            'wall.get',
+            params: {
+              'owner_id': ownerId,
+              'offset': offset,
+              'count': count,
+              'filter': filter,
+              'extended': 1,
+              'fields': 'photo_50,photo_100,online',
+            },
+            parser: (json) => WallResponse.fromJson(JsonSafe.toMap(json)),
+            fallback: () => WallResponse.empty(),
+          );
 
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
@@ -92,7 +117,7 @@ class WallHandler {
         'attachments': attachments.join(','),
     };
 
-    return _client.call<int>(
+    final res = await _client.call<int>(
       'wall.post',
       httpMethod: HttpMethod.post,
       params: params,
@@ -104,6 +129,19 @@ class WallHandler {
       },
       fallback: () => 0,
     );
+
+    if (res.isSuccess) {
+      unawaited(_client.cacheService.invalidate(
+        key: 'wall_${ownerId}_all',
+        instanceId: _client.instanceId,
+      ));
+      unawaited(_client.cacheService.invalidate(
+        key: 'wall_${ownerId}_owner',
+        instanceId: _client.instanceId,
+      ));
+    }
+
+    return res;
   }
 
   /// Delete a post from the wall.
@@ -111,7 +149,7 @@ class WallHandler {
     required int ownerId,
     required int postId,
   }) async {
-    return _client.call<bool>(
+    final res = await _client.call<bool>(
       'wall.delete',
       httpMethod: HttpMethod.post,
       params: {
@@ -121,6 +159,23 @@ class WallHandler {
       parser: (json) => json == 1 || json == true || (json is Map && json['response'] == 1),
       fallback: () => false,
     );
+
+    if (res.isSuccess) {
+      unawaited(_client.cacheService.invalidate(
+        key: 'wall_${ownerId}_all',
+        instanceId: _client.instanceId,
+      ));
+      unawaited(_client.cacheService.invalidate(
+        key: 'wall_${ownerId}_owner',
+        instanceId: _client.instanceId,
+      ));
+      unawaited(_client.cacheService.invalidate(
+        key: 'wall_${ownerId}_others',
+        instanceId: _client.instanceId,
+      ));
+    }
+
+    return res;
   }
 
   /// Toggle like on a wall post.

@@ -70,24 +70,18 @@ class _WallPostCardState extends State<WallPostCard> {
         ? '${text.substring(0, text.length > 250 ? 250 : text.length)}...'
         : text;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: const Color(0xFFC4CED8), width: 1),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x10000000),
-            offset: Offset(0, 1),
-            blurRadius: 2,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header: Avatar, Name, Date
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: const Color(0xFFC4CED8), width: 1),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header: Avatar, Name, Date
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
             child: Row(
@@ -289,8 +283,9 @@ class _WallPostCardState extends State<WallPostCard> {
           ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 }
 
 class _ActionButton extends StatelessWidget {

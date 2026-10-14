@@ -9,6 +9,7 @@ import '../../../core/models/post.dart';
 import '../../../core/models/user.dart';
 import '../../theme/retro_theme.dart';
 import '../../widgets/retro_avatar.dart';
+import '../../widgets/retro_button.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
 import 'widgets/dotted_leader_row.dart';
@@ -44,6 +45,8 @@ class _WallViewState extends State<WallView>
   late final Animation<double> _infoHeightFactor;
 
   User? _user;
+  bool _isLoadingProfile = true;
+  String? _profileErrorMessage;
 
   List<Post> _posts = [];
   bool _isLoadingPosts = true;
@@ -58,6 +61,18 @@ class _WallViewState extends State<WallView>
 
   int get _targetId => widget.ownerId ?? widget.account.userId;
   bool get _isMyWall => _targetId == widget.account.userId;
+
+  bool _hasProfileData(User u) {
+    return u.counters.friends > 0 ||
+        u.counters.followers > 0 ||
+        u.counters.groups > 0 ||
+        u.counters.photos > 0 ||
+        u.counters.audios > 0 ||
+        u.counters.videos > 0 ||
+        u.status.isNotEmpty ||
+        u.city.isNotEmpty ||
+        u.homeTown.isNotEmpty;
+  }
 
   @override
   void initState() {
@@ -74,10 +89,11 @@ class _WallViewState extends State<WallView>
       curve: Curves.fastOutSlowIn,
     );
 
-    // Initial check in local cache
-    final cached = widget.client.userCache.getUser(_targetId);
-    if (cached != null) {
+    // Initial check in local memory cache: only use if counters or extended profile is present
+    final cached = widget.client.userCache.getUser(_targetId, autoFetch: false);
+    if (cached != null && _hasProfileData(cached)) {
       _user = cached;
+      _isLoadingProfile = false;
     }
 
     _loadUserProfile();
@@ -102,18 +118,37 @@ class _WallViewState extends State<WallView>
     }
   }
 
-  Future<void> _loadUserProfile() async {
-    final res = await _wallHandler.getProfile(_targetId);
+  Future<void> _loadUserProfile({bool forceRefresh = false}) async {
+    final res = await _wallHandler.getProfile(_targetId, forceRefresh: forceRefresh);
     if (!mounted) return;
     if (res.isSuccess && res.dataOrNull != null) {
       setState(() {
         _user = res.dataOrNull;
+        _isLoadingProfile = false;
+        _profileErrorMessage = null;
       });
+      // If profile was loaded from cache, silently fetch fresh data from network in background
+      if (res.isFromCache && !forceRefresh) {
+        unawaited(_wallHandler.getProfile(_targetId, forceRefresh: true).then((netRes) {
+          if (mounted && netRes.isSuccess && netRes.dataOrNull != null) {
+            setState(() {
+              _user = netRes.dataOrNull;
+            });
+          }
+        }));
+      }
+    } else {
+      if (_user == null) {
+        setState(() {
+          _isLoadingProfile = false;
+          _profileErrorMessage = res.errorOrNull?.message ?? 'Не удалось загрузить данные страницы';
+        });
+      }
     }
   }
 
-  Future<void> _loadPosts({bool refresh = false}) async {
-    if (refresh) {
+  Future<void> _loadPosts({bool refresh = false, bool forceRefresh = false}) async {
+    if (refresh && _posts.isEmpty) {
       setState(() {
         _isLoadingPosts = true;
         _hasMore = true;
@@ -126,6 +161,7 @@ class _WallViewState extends State<WallView>
       offset: offset,
       count: 20,
       filter: _currentFilter,
+      forceRefresh: forceRefresh,
     );
 
     if (!mounted) return;
@@ -143,6 +179,26 @@ class _WallViewState extends State<WallView>
         _isLoadingPosts = false;
         _isLoadingMore = false;
       });
+
+      // If first page came from cache, silently fetch fresh data from network in background
+      if (refresh && res.isFromCache && !forceRefresh) {
+        unawaited(_wallHandler.getWall(
+          ownerId: _targetId,
+          offset: 0,
+          count: 20,
+          filter: _currentFilter,
+          forceRefresh: true,
+        ).then((netRes) {
+          if (mounted && netRes.isSuccess && netRes.dataOrNull != null) {
+            final freshData = netRes.dataOrNull!;
+            setState(() {
+              _posts = freshData.items;
+              _totalCount = freshData.count;
+              _hasMore = _posts.length < _totalCount;
+            });
+          }
+        }));
+      }
     } else {
       setState(() {
         _isLoadingPosts = false;
@@ -159,8 +215,8 @@ class _WallViewState extends State<WallView>
 
   Future<void> _handleRefresh() async {
     await Future.wait([
-      _loadUserProfile(),
-      _loadPosts(refresh: true),
+      _loadUserProfile(forceRefresh: true),
+      _loadPosts(refresh: true, forceRefresh: true),
     ]);
   }
 
@@ -182,7 +238,7 @@ class _WallViewState extends State<WallView>
       _postTextController.clear();
       FocusScope.of(context).unfocus();
       // Reload posts to fetch the newly created post
-      await _loadPosts(refresh: true);
+      await _loadPosts(refresh: true, forceRefresh: true);
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -269,63 +325,133 @@ class _WallViewState extends State<WallView>
 
   void _onFilterChanged(String filter) {
     if (_currentFilter == filter) return;
-    setState(() => _currentFilter = filter);
+    setState(() {
+      _currentFilter = filter;
+      _posts = [];
+    });
     _loadPosts(refresh: true);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_user == null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFD3DBE3),
+        body: Center(
+          child: _isLoadingProfile
+              ? const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    RetroLoadingIndicator(size: 32),
+                    SizedBox(height: 14),
+                    Text(
+                      'Загрузка страницы...',
+                      style: TextStyle(
+                        color: RetroTheme.textSecondary,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                )
+              : Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _profileErrorMessage ?? 'Не удалось загрузить страницу',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: RetroTheme.textSecondary,
+                          fontSize: 14,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      RetroButton(
+                        text: 'Повторить',
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        fontSize: 14,
+                        onPressed: () {
+                          setState(() {
+                            _isLoadingProfile = true;
+                            _profileErrorMessage = null;
+                          });
+                          _loadUserProfile(forceRefresh: true);
+                          _loadPosts(refresh: true, forceRefresh: true);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFD3DBE3),
       body: RetroPullToRefresh(
         onRefresh: _handleRefresh,
-        child: ListView(
+        backgroundColor: const Color(0xFF344454),
+        contentColor: const Color(0xFFCAD7E5),
+        arrowColor: const Color(0xFFB5C8DB),
+        child: CustomScrollView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
-          children: [
+          slivers: [
             // Dark Profile Card Container
-            _buildProfileHeaderCard(),
+            SliverToBoxAdapter(
+              child: _buildProfileHeaderCard(),
+            ),
 
             // Full-width "Информация" Section
-            _buildInfoSection(_user),
+            SliverToBoxAdapter(
+              child: _buildInfoSection(_user),
+            ),
 
             // Metallic Composer Bar with Filter Pills
-            _buildComposerAndFilters(),
-
-            // Posts Feed Container
-            Container(
-              color: const Color(0xFFD3DBE3),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_isLoadingPosts)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 40),
-                      child: Center(child: RetroLoadingIndicator(size: 28)),
-                    )
-                  else if (_posts.isEmpty)
-                    _buildEmptyState()
-                  else ...[
-                    for (final post in _posts)
-                      WallPostCard(
-                        key: ValueKey('post_${post.id}'),
-                        post: post,
-                        onLikeToggle: () => _handleToggleLike(post),
-                        onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
-                            ? () => _handleDeletePost(post)
-                            : null,
-                      ),
-                    if (_isLoadingMore)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        child: Center(child: RetroLoadingIndicator(size: 20)),
-                      ),
-                  ],
-                ],
-              ),
+            SliverToBoxAdapter(
+              child: _buildComposerAndFilters(),
             ),
+
+            // Posts Feed Slivers
+            if (_isLoadingPosts)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40),
+                  child: Center(child: RetroLoadingIndicator(size: 28)),
+                ),
+              )
+            else if (_posts.isEmpty)
+              SliverToBoxAdapter(
+                child: _buildEmptyState(),
+              )
+            else ...[
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                sliver: SliverList.builder(
+                  itemCount: _posts.length,
+                  itemBuilder: (context, index) {
+                    final post = _posts[index];
+                    return WallPostCard(
+                      key: ValueKey('post_${post.id}'),
+                      post: post,
+                      onLikeToggle: () => _handleToggleLike(post),
+                      onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
+                          ? () => _handleDeletePost(post)
+                          : null,
+                    );
+                  },
+                ),
+              ),
+              if (_isLoadingMore)
+                const SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: RetroLoadingIndicator(size: 20)),
+                  ),
+                ),
+            ],
           ],
         ),
       ),
@@ -353,21 +479,14 @@ class _WallViewState extends State<WallView>
               // Avatar with dark retro frame
               Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(6),
+                  borderRadius: BorderRadius.circular(5),
                   border: Border.all(
                     color: const Color(0xFF192533),
                     width: 1,
                   ),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x66000000),
-                      offset: Offset(0, 2),
-                      blurRadius: 4,
-                    ),
-                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(5),
+                  borderRadius: BorderRadius.circular(4),
                   child: RetroAvatar(
                     url: avatarUrl,
                     size: 84,
@@ -392,13 +511,6 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
-                          shadows: [
-                            Shadow(
-                              color: Color(0x99000000),
-                              offset: Offset(0, 1),
-                              blurRadius: 2,
-                            ),
-                          ],
                         ),
                       ),
                       Text(
@@ -409,13 +521,6 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
-                          shadows: [
-                            Shadow(
-                              color: Color(0x99000000),
-                              offset: Offset(0, 1),
-                              blurRadius: 2,
-                            ),
-                          ],
                         ),
                       ),
                     ] else ...[
@@ -427,13 +532,6 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
-                          shadows: [
-                            Shadow(
-                              color: Color(0x99000000),
-                              offset: Offset(0, 1),
-                              blurRadius: 2,
-                            ),
-                          ],
                         ),
                       ),
                     ],
@@ -457,20 +555,11 @@ class _WallViewState extends State<WallView>
                     Row(
                       children: [
                         Container(
-                          width: 9,
-                          height: 9,
+                          width: 8,
+                          height: 8,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
                             color: isOnline ? const Color(0xFF4CD964) : const Color(0xFF6B8096),
-                            boxShadow: isOnline
-                                ? const [
-                                    BoxShadow(
-                                      color: Color(0x804CD964),
-                                      blurRadius: 4,
-                                      spreadRadius: 1,
-                                    ),
-                                  ]
-                                : null,
                           ),
                         ),
                         const SizedBox(width: 7),
@@ -561,13 +650,6 @@ class _WallViewState extends State<WallView>
                       color: Color(0xFF8EA4BA),
                       fontSize: 14.5,
                       fontWeight: FontWeight.bold,
-                      shadows: [
-                        Shadow(
-                          color: Color(0x60000000),
-                          offset: Offset(0, 1),
-                          blurRadius: 1,
-                        ),
-                      ],
                     ),
                   ),
                   const Spacer(),
@@ -596,14 +678,7 @@ class _WallViewState extends State<WallView>
                 ? Container(
                     width: double.infinity,
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Color(0xFF304050),
-                          Color(0xFF475B73),
-                        ],
-                      ),
+                      color: Color(0xFF304050),
                       border: Border(
                         bottom: BorderSide(color: Color(0xFF223040), width: 1),
                       ),
@@ -663,60 +738,18 @@ class _WallViewState extends State<WallView>
   Widget _buildInfoCard({required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF2B3946),
-        borderRadius: BorderRadius.circular(6),
+        color: const Color(0xFF263340),
+        borderRadius: BorderRadius.circular(4),
         border: Border.all(
-          color: const Color(0xFF1E2833),
+          color: const Color(0xFF1C2731),
           width: 1,
         ),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(5),
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: children,
-              ),
-            ),
-            // Light inner top shadow
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: 4,
-              child: IgnorePointer(
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        Colors.black.withValues(alpha: 0.35),
-                        Colors.transparent,
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            // Light inner bottom bevel
-            Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 1,
-              child: IgnorePointer(
-                child: Container(
-                  color: Colors.white.withValues(alpha: 0.05),
-                ),
-              ),
-            ),
-          ],
-        ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: children,
       ),
     );
   }
@@ -758,30 +791,13 @@ class _WallViewState extends State<WallView>
   Widget _buildComposerAndFilters() {
     return Container(
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          stops: [0.0, 0.05, 0.5, 1.0],
-          colors: [
-            Color(0xFFF7FAFD),
-            Color(0xFFE4E9EF),
-            Color(0xFFD4DCE4),
-            Color(0xFFC5CED8),
-          ],
-        ),
+        color: Color(0xFFE2E7ED),
         border: Border(
           top: BorderSide(color: Color(0xFFB0BDCA), width: 1),
           bottom: BorderSide(color: Color(0xFF98A6B4), width: 1),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x18000000),
-            offset: Offset(0, 2),
-            blurRadius: 3,
-          ),
-        ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -806,55 +822,21 @@ class _WallViewState extends State<WallView>
                   onTap: () {
                     // Attachment picker
                   },
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(17),
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Color(0xFFBCC7D4),
-                          Color(0xFF95A5B6),
-                        ],
-                      ),
+                      color: const Color(0xFFA5B4C4),
                       border: Border.all(color: const Color(0xFF768797), width: 1),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x33000000),
-                          offset: Offset(0, 1),
-                          blurRadius: 2,
-                        ),
-                      ],
                     ),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          top: 1,
-                          left: 4,
-                          right: 4,
-                          child: Container(
-                            height: 1,
-                            color: Colors.white.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        const Center(
-                          child: Icon(
-                            Icons.add,
-                            color: Colors.white,
-                            size: 24,
-                            shadows: [
-                              Shadow(
-                                color: Color(0x66000000),
-                                offset: Offset(0, 1),
-                                blurRadius: 1,
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
+                    child: const Center(
+                      child: Icon(
+                        Icons.add,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                     ),
                   ),
                 ),
@@ -864,21 +846,13 @@ class _WallViewState extends State<WallView>
               // Input field
               Expanded(
                 child: Container(
-                  height: 36,
+                  height: 34,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
+                    borderRadius: BorderRadius.circular(17),
                     border: Border.all(color: const Color(0xFFA2B0BF), width: 1),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Color(0x28000000),
-                        offset: Offset(0, 1),
-                        blurRadius: 2,
-                        spreadRadius: -0.5,
-                      ),
-                    ],
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
                   alignment: Alignment.center,
                   child: TextField(
                     controller: _postTextController,
@@ -905,57 +879,23 @@ class _WallViewState extends State<WallView>
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: _isSendingPost ? null : _submitPost,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(17),
                   child: Container(
-                    width: 36,
-                    height: 36,
+                    width: 34,
+                    height: 34,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      gradient: const LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Color(0xFF5591E2),
-                          Color(0xFF2663BD),
-                        ],
-                      ),
-                      border: Border.all(color: const Color(0xFF1B4E99), width: 1),
-                      boxShadow: const [
-                        BoxShadow(
-                          color: Color(0x40000000),
-                          offset: Offset(0, 1),
-                          blurRadius: 2,
-                        ),
-                      ],
+                      color: const Color(0xFF3E75BA),
+                      border: Border.all(color: const Color(0xFF265692), width: 1),
                     ),
-                    child: Stack(
-                      children: [
-                        Positioned(
-                          top: 1,
-                          left: 4,
-                          right: 4,
-                          child: Container(
-                            height: 1,
-                            color: Colors.white.withValues(alpha: 0.35),
-                          ),
-                        ),
-                        Center(
-                          child: _isSendingPost
-                              ? const RetroLoadingIndicator(size: 16)
-                              : const Icon(
-                                  Icons.arrow_forward,
-                                  color: Colors.white,
-                                  size: 20,
-                                  shadows: [
-                                    Shadow(
-                                      color: Color(0x66000000),
-                                      offset: Offset(0, 1),
-                                      blurRadius: 1,
-                                    ),
-                                  ],
-                                ),
-                        ),
-                      ],
+                    child: Center(
+                      child: _isSendingPost
+                          ? const RetroLoadingIndicator(size: 16)
+                          : const Icon(
+                              Icons.arrow_forward,
+                              color: Colors.white,
+                              size: 18,
+                            ),
                     ),
                   ),
                 ),
@@ -974,56 +914,27 @@ class _WallViewState extends State<WallView>
       color: Colors.transparent,
       child: InkWell(
         onTap: () => _onFilterChanged(filterKey),
-        borderRadius: BorderRadius.circular(13),
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-          decoration: isSelected
-              ? BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0xFF9CAEC0),
-                      Color(0xFF8697A9),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: const Color(0xFF6F8092), width: 1),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x33000000),
-                      offset: Offset(0, 1),
-                      blurRadius: 1,
-                    ),
-                  ],
-                )
-              : BoxDecoration(
-                  gradient: const LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Color(0xFFE6EBF1),
-                      Color(0xFFD2D9E2),
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(13),
-                  border: Border.all(color: const Color(0xFFA5B3C1), width: 1),
-                ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? const Color(0xFF8B9CAB)
+                : const Color(0xFFD8DFE7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isSelected
+                  ? const Color(0xFF6E7F8E)
+                  : const Color(0xFFA5B3C1),
+              width: 1,
+            ),
+          ),
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 12.5,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
-              color: isSelected ? const Color(0xFF283747) : const Color(0xFF566779),
-              shadows: isSelected
-                  ? const [
-                      Shadow(
-                        color: Color(0x40FFFFFF),
-                        offset: Offset(0, 1),
-                        blurRadius: 0,
-                      ),
-                    ]
-                  : null,
+              fontSize: 12,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+              color: isSelected ? Colors.white : const Color(0xFF455565),
             ),
           ),
         ),

@@ -45,6 +45,7 @@ sealed class ApiResponse<T> {
 
   bool get isSuccess => this is ApiSuccess<T>;
   bool get isFailure => this is ApiFailure<T>;
+  bool get isFromCache => this is ApiSuccess<T> && (this as ApiSuccess<T>).isFromCache;
 
   T? get dataOrNull => switch (this) {
     ApiSuccess<T>(:final data) => data,
@@ -76,6 +77,7 @@ sealed class ApiResponse<T> {
 class ApiSuccess<T> extends ApiResponse<T> {
   final T data;
   final Map<String, dynamic>? rawJson;
+  @override
   final bool isFromCache;
 
   const ApiSuccess(this.data, {this.rawJson, this.isFromCache = false});

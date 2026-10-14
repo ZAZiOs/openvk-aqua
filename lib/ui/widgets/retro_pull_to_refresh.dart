@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 
 import 'retro_loading_indicator.dart';
 
@@ -110,6 +109,8 @@ class RetroPullToRefresh extends StatefulWidget {
   final Widget child;
   final ScrollController? controller;
   final Color? backgroundColor;
+  final Color? contentColor;
+  final Color? arrowColor;
   final double threshold;
   final DateTime? initialLastUpdated;
 
@@ -119,6 +120,8 @@ class RetroPullToRefresh extends StatefulWidget {
     required this.child,
     this.controller,
     this.backgroundColor,
+    this.contentColor,
+    this.arrowColor,
     this.threshold = 50.0,
     this.initialLastUpdated,
   });
@@ -297,6 +300,13 @@ class _RetroPullToRefreshState extends State<RetroPullToRefresh>
   @override
   Widget build(BuildContext context) {
     final bgColor = widget.backgroundColor ?? const Color(0xFFE4E8EE);
+    final isDark = bgColor.computeLuminance() < 0.35;
+    final defaultContentColor =
+        isDark ? const Color(0xFFCAD7E5) : const Color(0xFF7A8796);
+    final contentColor = widget.contentColor ?? defaultContentColor;
+    final defaultArrowColor =
+        isDark ? const Color(0xFFB5C8DB) : const Color(0xFF8895A5);
+    final arrowColor = widget.arrowColor ?? defaultArrowColor;
     final activeHeight = _isRefreshing ? _refreshHoldOffset : _pullDistance;
 
     return Listener(
@@ -309,68 +319,75 @@ class _RetroPullToRefreshState extends State<RetroPullToRefresh>
         onNotification: _onScrollNotification,
         child: Stack(
           children: [
-            // Pull header positioned at the top in the overscroll area
-            if (activeHeight > 0.0)
+            // Pull header background with subpixel bleed (3.0px) behind child to eliminate any 1px gap
+            if (activeHeight > 0.0) ...[
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: activeHeight + 3.0,
+                child: Container(color: bgColor),
+              ),
               Positioned(
                 top: 0,
                 left: 0,
                 right: 0,
                 height: activeHeight,
                 child: ClipRect(
-                  child: Container(
-                    color: bgColor,
-                    child: Stack(
-                      clipBehavior: Clip.hardEdge,
-                      children: [
-                        Positioned(
-                          bottom: 8,
-                          left: 0,
-                          right: 0,
-                          height: 48,
-                          child: Opacity(
-                            opacity: (activeHeight / _refreshingHeight).clamp(0.0, 1.0),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  formatRetroLastUpdated(_lastUpdated),
-                                  style: const TextStyle(
-                                    fontSize: 12.5,
-                                    color: Color(0xFF7A8796),
-                                    fontWeight: FontWeight.w500,
-                                    shadows: [
-                                      Shadow(
-                                        color: Colors.white,
-                                        offset: Offset(0, 1),
-                                        blurRadius: 0,
-                                      ),
-                                    ],
+                  child: Stack(
+                    clipBehavior: Clip.hardEdge,
+                    children: [
+                      Positioned(
+                        bottom: 8,
+                        left: 0,
+                        right: 0,
+                        height: 48,
+                        child: Opacity(
+                          opacity: (activeHeight / _refreshingHeight).clamp(0.0, 1.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                formatRetroLastUpdated(_lastUpdated),
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  color: contentColor,
+                                  fontWeight: FontWeight.w500,
+                                  shadows: isDark
+                                      ? null
+                                      : const [
+                                          Shadow(
+                                            color: Colors.white,
+                                            offset: Offset(0, 1),
+                                            blurRadius: 0,
+                                          ),
+                                        ],
+                                ),
+                              ),
+                              const SizedBox(height: 5),
+                              if (_isRefreshing)
+                                const RetroLoadingIndicator(size: 20)
+                              else
+                                AnimatedRotation(
+                                  turns: _isReadyToRelease ? 0.5 : 0.0,
+                                  duration: const Duration(milliseconds: 200),
+                                  curve: Curves.easeInOut,
+                                  child: RetroPullArrow(
+                                    color: arrowColor,
+                                    width: 20,
+                                    height: 24,
                                   ),
                                 ),
-                                const SizedBox(height: 5),
-                                if (_isRefreshing)
-                                  const RetroLoadingIndicator(size: 20)
-                                else
-                                  AnimatedRotation(
-                                    turns: _isReadyToRelease ? 0.5 : 0.0,
-                                    duration: const Duration(milliseconds: 200),
-                                    curve: Curves.easeInOut,
-                                    child: const RetroPullArrow(
-                                      color: Color(0xFF8895A5),
-                                      width: 20,
-                                      height: 24,
-                                    ),
-                                  ),
-                              ],
-                            ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                 ),
               ),
+            ],
 
             // Scrollable child: translated smoothly by activeHeight with 0 gap
             Positioned.fill(
