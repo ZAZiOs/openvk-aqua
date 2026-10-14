@@ -41,6 +41,7 @@ class MessagesHandler {
       _client.messengerStore.setConversations(
         res.dataOrNull!,
         append: offset > 0,
+        filter: filter,
       );
       unawaited(_client.longPollService.checkAndStart());
     }

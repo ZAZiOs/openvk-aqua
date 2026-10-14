@@ -33,15 +33,22 @@ class _MessagesViewState extends State<MessagesView> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
-  ConversationsResponse? _conversationsResponse;
-  final List<ConversationItem> _items = [];
-  bool _isLoading = true;
+  bool _isLoading = false;
   bool _isLoadingMore = false;
-  bool _hasMore = true;
   String? _errorMessage;
+
+  int _allOffset = 0;
+  bool _hasMoreAll = true;
+
+  int _unreadOffset = 0;
+  bool _hasMoreUnread = true;
+  bool _hasFetchedUnread = false;
 
   late String _currentFilter;
   String _searchQuery = '';
+
+  bool get _hasMore => _currentFilter == 'unread' ? _hasMoreUnread : _hasMoreAll;
+  int get _pageSize => _currentFilter == 'unread' ? 10 : 30;
 
   @override
   void initState() {
@@ -57,7 +64,27 @@ class _MessagesViewState extends State<MessagesView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.filter != widget.filter) {
       _currentFilter = widget.filter;
-      _loadConversations(refresh: true);
+      _onFilterChanged();
+    }
+  }
+
+  void _onFilterChanged() {
+    if (_currentFilter == 'unread') {
+      final existingUnreads =
+          widget.client.messengerStore.unreadConversationOrder.value;
+      if (existingUnreads.isNotEmpty) {
+        // Instantly display already loaded unread chats from RAM without full reload
+        // and trigger background lazy-loading check with count: 10
+        _checkMoreUnread();
+      } else if (!_hasFetchedUnread) {
+        _loadConversations(refresh: false);
+      }
+    } else {
+      final existingAll =
+          widget.client.messengerStore.conversationOrder.value;
+      if (existingAll.isEmpty) {
+        _loadConversations(refresh: false);
+      }
     }
   }
 
@@ -78,15 +105,50 @@ class _MessagesViewState extends State<MessagesView> {
     }
   }
 
+  Future<void> _checkMoreUnread() async {
+    if (_isLoadingMore) return;
+    setState(() => _isLoadingMore = true);
+
+    final res = await _messagesHandler.getConversations(
+      offset: _unreadOffset,
+      count: 10,
+      filter: 'unread',
+      extended: true,
+      cachePolicy: CachePolicy.networkFirst,
+    );
+
+    if (!mounted) return;
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      setState(() {
+        _hasFetchedUnread = true;
+        _unreadOffset += data.items.length;
+        _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
+        _isLoadingMore = false;
+      });
+    } else {
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
   Future<void> _loadConversations({bool refresh = false}) async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    final currentList = _currentFilter == 'unread'
+        ? widget.client.messengerStore.unreadConversationOrder.value
+        : widget.client.messengerStore.conversationOrder.value;
+
+    if (currentList.isEmpty && !refresh) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
+
+    final currentCount = _pageSize;
 
     final res = await _messagesHandler.getConversations(
       offset: 0,
-      count: 30,
+      count: currentCount,
       filter: _currentFilter,
       extended: true,
       cachePolicy: refresh ? CachePolicy.networkFirst : CachePolicy.cacheFirst,
@@ -97,11 +159,16 @@ class _MessagesViewState extends State<MessagesView> {
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
       setState(() {
-        _conversationsResponse = data;
-        _items.clear();
-        _items.addAll(data.items);
+        if (_currentFilter == 'unread') {
+          _unreadOffset = data.items.length;
+          _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
+          _hasFetchedUnread = true;
+        } else {
+          _allOffset = data.items.length;
+          _hasMoreAll = _allOffset < data.count && data.items.isNotEmpty;
+        }
         _isLoading = false;
-        _hasMore = data.items.length < data.count;
+        _errorMessage = null;
       });
     } else {
       setState(() {
@@ -112,13 +179,17 @@ class _MessagesViewState extends State<MessagesView> {
   }
 
   Future<void> _loadMoreConversations() async {
-    if (_isLoadingMore || !_hasMore) return;
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
 
     setState(() => _isLoadingMore = true);
 
+    final currentOffset =
+        _currentFilter == 'unread' ? _unreadOffset : _allOffset;
+    final currentCount = _pageSize;
+
     final res = await _messagesHandler.getConversations(
-      offset: _items.length,
-      count: 30,
+      offset: currentOffset,
+      count: currentCount,
       filter: _currentFilter,
       extended: true,
       cachePolicy: CachePolicy.networkFirst,
@@ -129,26 +200,14 @@ class _MessagesViewState extends State<MessagesView> {
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
       setState(() {
-        _conversationsResponse = ConversationsResponse(
-          count: data.count,
-          unreadCount: data.unreadCount,
-          items: [..._items, ...data.items],
-          profiles: {
-            if (_conversationsResponse != null) ..._conversationsResponse!.profiles,
-            ...data.profiles,
-          },
-          groups: {
-            if (_conversationsResponse != null) ..._conversationsResponse!.groups,
-            ...data.groups,
-          },
-          chats: {
-            if (_conversationsResponse != null) ..._conversationsResponse!.chats,
-            ...data.chats,
-          },
-        );
-        _items.addAll(data.items);
+        if (_currentFilter == 'unread') {
+          _unreadOffset += data.items.length;
+          _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
+        } else {
+          _allOffset += data.items.length;
+          _hasMoreAll = _allOffset < data.count && data.items.isNotEmpty;
+        }
         _isLoadingMore = false;
-        _hasMore = _items.length < data.count && data.items.isNotEmpty;
       });
     } else {
       setState(() => _isLoadingMore = false);
@@ -303,55 +362,6 @@ class _MessagesViewState extends State<MessagesView> {
   }
 
   Widget _buildBody() {
-    if (_isLoading && _items.isEmpty) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            RetroLoadingIndicator(size: 28),
-            SizedBox(height: 12),
-            Text(
-              'Загрузка диалогов...',
-              style: TextStyle(
-                color: RetroTheme.textSecondary,
-                fontSize: 14,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    if (_errorMessage != null && widget.client.messengerStore.conversationOrder.value.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: RetroTheme.textSecondary,
-                  fontSize: 14,
-                ),
-              ),
-              const SizedBox(height: 14),
-              ElevatedButton(
-                onPressed: () => _loadConversations(refresh: true),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: RetroTheme.vkBlue,
-                  foregroundColor: Colors.white,
-                ),
-                child: const Text('Повторить попытку'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     final orderNotifier = _currentFilter == 'unread'
         ? widget.client.messengerStore.unreadConversationOrder
         : widget.client.messengerStore.conversationOrder;
@@ -373,7 +383,77 @@ class _MessagesViewState extends State<MessagesView> {
           displayPeerIds = peerIds;
         }
 
+        if (_isLoading && displayPeerIds.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const RetroLoadingIndicator(size: 28),
+                const SizedBox(height: 12),
+                Text(
+                  _currentFilter == 'unread'
+                      ? 'Проверка непрочитанных...'
+                      : 'Загрузка диалогов...',
+                  style: const TextStyle(
+                    color: RetroTheme.textSecondary,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        if (_errorMessage != null && displayPeerIds.isEmpty) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _errorMessage!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: RetroTheme.textSecondary,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton(
+                    onPressed: () => _loadConversations(refresh: true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: RetroTheme.vkBlue,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Повторить попытку'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         if (displayPeerIds.isEmpty) {
+          if (_isLoadingMore) {
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RetroLoadingIndicator(size: 28),
+                  SizedBox(height: 12),
+                  Text(
+                    'Проверка непрочитанных...',
+                    style: TextStyle(
+                      color: RetroTheme.textSecondary,
+                      fontSize: 14,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+
           final String emptyText = _searchQuery.isNotEmpty
               ? 'По запросу ничего не найдено'
               : _currentFilter == 'unread'
@@ -427,7 +507,12 @@ class _MessagesViewState extends State<MessagesView> {
                 child: ValueListenableBuilder<ConversationItem>(
                   valueListenable: notifier,
                   builder: (context, item, _) {
-                    return _buildConversationTile(item);
+                    return ValueListenableBuilder<int>(
+                      valueListenable: widget.client.userCache.revision,
+                      builder: (context, _, __) {
+                        return _buildConversationTile(item);
+                      },
+                    );
                   },
                 ),
               );
@@ -466,7 +551,7 @@ class _MessagesViewState extends State<MessagesView> {
 
     final bool isUserOnline = !item.isChat &&
         item.isUser &&
-        store.profiles[item.peerId]?.isOnline == true;
+        store.userCache.getUser(item.peerId)?.isOnline == true;
 
     final lastMsg = item.lastMessage;
     final isOut = lastMsg.isOut || lastMsg.fromId == widget.account.userId;
@@ -474,10 +559,16 @@ class _MessagesViewState extends State<MessagesView> {
     String? senderPrefix;
     if (isOut) {
       senderPrefix = 'Вы: ';
-    } else if (item.isChat && lastMsg.fromId > 0) {
-      final senderUser = store.profiles[lastMsg.fromId];
-      if (senderUser != null) {
-        senderPrefix = '${senderUser.firstName}: ';
+    } else if (item.isChat && lastMsg.fromId != 0) {
+      final senderName = store.userCache.getSenderName(lastMsg.fromId);
+      if (senderName.isNotEmpty) {
+        senderPrefix = '$senderName: ';
+      } else {
+        if (lastMsg.fromId > 0) {
+          store.userCache.requestUser(lastMsg.fromId);
+        } else if (lastMsg.fromId < 0) {
+          store.userCache.requestGroup(lastMsg.fromId.abs());
+        }
       }
     }
 

@@ -5,6 +5,7 @@ export 'api/messages_handler.dart';
 export 'api/openvk_client.dart';
 export 'cache/cache_policy.dart';
 export 'cache/cache_service.dart';
+export 'cache/user_cache.dart';
 export 'store/messenger_store.dart';
 export 'db/app_database.dart';
 export 'models/attachment.dart';

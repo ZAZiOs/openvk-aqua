@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../cache/user_cache.dart';
 import '../models/attachment.dart';
 import '../models/conversation.dart';
 import '../models/conversations_response.dart';
@@ -11,6 +12,8 @@ import '../models/message.dart';
 import '../models/user.dart';
 
 class MessengerStore {
+  final UserCache userCache;
+
   final ValueNotifier<List<int>> conversationOrder = ValueNotifier<List<int>>([]);
   final ValueNotifier<List<int>> unreadConversationOrder = ValueNotifier<List<int>>([]);
   final ValueNotifier<int> totalUnreadCount = ValueNotifier<int>(0);
@@ -19,11 +22,14 @@ class MessengerStore {
   final Map<int, ValueNotifier<List<int>>> _chatMessageOrders = {};
   final Map<int, ValueNotifier<Message>> _messageNotifiers = {};
 
-  final Map<int, User> profiles = {};
-  final Map<int, Group> groups = {};
-  final Map<int, Chat> chats = {};
-
   int currentUserId = 0;
+
+  MessengerStore({UserCache? userCache})
+      : userCache = userCache ?? UserCache();
+
+  Map<int, User> get profiles => userCache.users;
+  Map<int, Group> get groups => userCache.groups;
+  Map<int, Chat> get chats => userCache.chats;
 
   ValueNotifier<ConversationItem>? getConversationNotifier(int peerId) {
     return _conversationNotifiers[peerId];
@@ -53,49 +59,92 @@ class MessengerStore {
     return _messageNotifiers[messageId]?.value;
   }
 
-  void setConversations(ConversationsResponse response, {bool append = false}) {
-    profiles.addAll(response.profiles);
-    groups.addAll(response.groups);
-    chats.addAll(response.chats);
+  void setConversations(
+    ConversationsResponse response, {
+    bool append = false,
+    String filter = 'all',
+  }) {
+    userCache.putUsers(response.profiles.values);
+    userCache.putGroups(response.groups.values);
+    userCache.putChats(response.chats.values);
 
     final newPeerIds = <int>[];
-    final newUnreadPeerIds = <int>[];
+    final unreadPeerIds = <int>[];
 
     for (final item in response.items) {
       getOrCreateConversationNotifier(item);
       newPeerIds.add(item.peerId);
-      if (item.unreadCount > 0) {
-        newUnreadPeerIds.add(item.peerId);
+      if (filter == 'unread' || item.unreadCount > 0) {
+        unreadPeerIds.add(item.peerId);
       }
     }
 
-    if (append) {
+    if (filter == 'unread') {
+      final updatedUnread = List<int>.from(unreadConversationOrder.value);
+      if (append) {
+        for (final id in unreadPeerIds) {
+          if (!updatedUnread.contains(id)) {
+            updatedUnread.add(id);
+          }
+        }
+      } else {
+        // Merge without losing any existing unread chats in cache
+        for (final id in unreadPeerIds.reversed) {
+          updatedUnread.remove(id);
+          updatedUnread.insert(0, id);
+        }
+      }
+      unreadConversationOrder.value = updatedUnread;
+
+      // Ensure they exist in conversationOrder as well
       final updatedOrder = List<int>.from(conversationOrder.value);
-      for (final id in newPeerIds) {
+      for (final id in unreadPeerIds) {
         if (!updatedOrder.contains(id)) {
           updatedOrder.add(id);
         }
       }
       conversationOrder.value = updatedOrder;
-
-      final updatedUnread = List<int>.from(unreadConversationOrder.value);
-      for (final id in newUnreadPeerIds) {
-        if (!updatedUnread.contains(id)) {
-          updatedUnread.add(id);
-        }
-      }
-      unreadConversationOrder.value = updatedUnread;
     } else {
-      conversationOrder.value = newPeerIds;
-      unreadConversationOrder.value = newUnreadPeerIds;
+      if (append) {
+        final updatedOrder = List<int>.from(conversationOrder.value);
+        for (final id in newPeerIds) {
+          if (!updatedOrder.contains(id)) {
+            updatedOrder.add(id);
+          }
+        }
+        conversationOrder.value = updatedOrder;
+
+        final updatedUnread = List<int>.from(unreadConversationOrder.value);
+        for (final id in unreadPeerIds) {
+          if (!updatedUnread.contains(id)) {
+            updatedUnread.add(id);
+          }
+        }
+        unreadConversationOrder.value = updatedUnread;
+      } else {
+        conversationOrder.value = newPeerIds;
+
+        final updatedUnread = List<int>.from(unreadConversationOrder.value);
+        for (final id in unreadPeerIds) {
+          if (!updatedUnread.contains(id)) {
+            updatedUnread.add(id);
+          }
+        }
+        for (final item in response.items) {
+          if (item.unreadCount == 0) {
+            updatedUnread.remove(item.peerId);
+          }
+        }
+        unreadConversationOrder.value = updatedUnread;
+      }
     }
 
     totalUnreadCount.value = response.unreadCount;
   }
 
   void setHistory(int peerId, HistoryResponse response, {bool append = false}) {
-    profiles.addAll(response.profiles);
-    groups.addAll(response.groups);
+    userCache.putUsers(response.profiles.values);
+    userCache.putGroups(response.groups.values);
 
     final msgOrder = getChatMessageOrderNotifier(peerId);
     final ids = <int>[];
@@ -138,10 +187,29 @@ class MessengerStore {
     final isUnread = (flags & 1) != 0;
     final isImportant = (flags & 8) != 0;
 
-    final parsedFromId = fromId ??
-        (extraFields != null && extraFields.containsKey('from')
-            ? int.tryParse(extraFields['from'].toString()) ?? peerId
-            : (isOut ? currentUserId : peerId));
+    int? detectedFromId = fromId;
+    if (detectedFromId == null) {
+      if (attachments != null && attachments.containsKey('from')) {
+        detectedFromId = int.tryParse(attachments['from'].toString());
+      } else if (extraFields != null && extraFields.containsKey('from')) {
+        detectedFromId = int.tryParse(extraFields['from'].toString());
+      }
+    }
+
+    final parsedFromId = detectedFromId ?? (isOut ? currentUserId : peerId);
+
+    // Auto-request sender info if not in cache
+    if (parsedFromId > 0 && !userCache.hasUser(parsedFromId)) {
+      userCache.requestUser(parsedFromId);
+    } else if (parsedFromId < 0 && !userCache.hasGroup(parsedFromId.abs())) {
+      userCache.requestGroup(parsedFromId.abs());
+    }
+
+    if (peerId > 0 && peerId <= 2000000000 && !userCache.hasUser(peerId)) {
+      userCache.requestUser(peerId);
+    } else if (peerId < 0 && !userCache.hasGroup(peerId.abs())) {
+      userCache.requestGroup(peerId.abs());
+    }
 
     final parsedAttachments = _parseAttachments(attachments);
 
@@ -160,7 +228,7 @@ class MessengerStore {
       updateTime: timestamp,
     );
 
-    debugPrint('[MessengerStore] 📝 onNewMessage: peerId=$peerId, msgId=$messageId, text="$text", preview="${newMessage.previewText}"');
+    debugPrint('[MessengerStore] 📝 onNewMessage: peerId=$peerId, msgId=$messageId, fromId=$parsedFromId, text="$text", preview="${newMessage.previewText}"');
 
     if (_messageNotifiers.containsKey(messageId)) {
       _messageNotifiers[messageId]!.value = newMessage;
@@ -171,7 +239,6 @@ class MessengerStore {
     final chatOrder = getChatMessageOrderNotifier(peerId);
     final currentChatIds = List<int>.from(chatOrder.value);
     if (!currentChatIds.contains(messageId)) {
-      // In messages.getHistory offset:0 is the newest message at index 0.
       currentChatIds.insert(0, messageId);
       chatOrder.value = currentChatIds;
     }
@@ -305,44 +372,9 @@ class MessengerStore {
     totalUnreadCount.value = count;
   }
 
-  String getTitle(ConversationItem item) {
-    if (item.isChat) {
-      final title = item.chatSettings?.title;
-      if (title != null && title.isNotEmpty) return title;
-      final chatId = item.peerId > 2000000000 ? item.peerId - 2000000000 : item.peerId;
-      final chat = chats[chatId] ?? chats[item.peerId];
-      if (chat != null && chat.title.isNotEmpty) return chat.title;
-      return 'Беседа #$chatId';
-    }
+  String getTitle(ConversationItem item) => userCache.getTitle(item);
 
-    if (item.isGroup) {
-      final groupId = item.peerId.abs();
-      return groups[groupId]?.name ?? 'Сообщество #$groupId';
-    }
-
-    final user = profiles[item.peerId];
-    if (user != null) return user.fullName;
-
-    return 'Пользователь #${item.peerId}';
-  }
-
-  String? getAvatarUrl(ConversationItem item) {
-    if (item.isChat) {
-      final photo = item.chatSettings?.photoUrl;
-      if (photo != null && photo.isNotEmpty) return photo;
-      final chatId = item.peerId > 2000000000 ? item.peerId - 2000000000 : item.peerId;
-      final chat = chats[chatId] ?? chats[item.peerId];
-      if (chat != null && chat.photoUrl.isNotEmpty) return chat.photoUrl;
-      return null;
-    }
-
-    if (item.isGroup) {
-      final groupId = item.peerId.abs();
-      return groups[groupId]?.avatarUrl;
-    }
-
-    return profiles[item.peerId]?.avatarUrl;
-  }
+  String? getAvatarUrl(ConversationItem item) => userCache.getAvatarUrl(item);
 
   List<ChatMemberAvatarInfo> getChatMemberAvatars(ConversationItem item) {
     if (!item.isChat) return const [];
@@ -353,7 +385,7 @@ class MessengerStore {
     final result = <ChatMemberAvatarInfo>[];
     for (final memberId in activeIds.take(4)) {
       if (memberId > 0) {
-        final user = profiles[memberId];
+        final user = userCache.getUser(memberId);
         if (user != null) {
           result.add(
             ChatMemberAvatarInfo(
@@ -364,12 +396,13 @@ class MessengerStore {
             ),
           );
         } else {
+          userCache.requestUser(memberId);
           result.add(
             const ChatMemberAvatarInfo(url: null, fallbackText: '?'),
           );
         }
       } else if (memberId < 0) {
-        final group = groups[memberId.abs()];
+        final group = userCache.getGroup(memberId.abs());
         if (group != null) {
           result.add(
             ChatMemberAvatarInfo(
@@ -378,6 +411,7 @@ class MessengerStore {
             ),
           );
         } else {
+          userCache.requestGroup(memberId.abs());
           result.add(
             const ChatMemberAvatarInfo(url: null, fallbackText: '?'),
           );
@@ -408,8 +442,6 @@ class MessengerStore {
     _conversationNotifiers.clear();
     _chatMessageOrders.clear();
     _messageNotifiers.clear();
-    profiles.clear();
-    groups.clear();
-    chats.clear();
+    userCache.clear();
   }
 }

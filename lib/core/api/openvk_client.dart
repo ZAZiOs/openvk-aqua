@@ -7,6 +7,9 @@ import 'package:http/http.dart' as http;
 
 import '../cache/cache_policy.dart';
 import '../cache/cache_service.dart';
+import '../cache/user_cache.dart';
+import '../models/group.dart';
+import '../models/user.dart';
 import '../store/messenger_store.dart';
 import '../utils/json_safe.dart';
 import 'api_response.dart';
@@ -31,6 +34,7 @@ class OpenVkClient {
 
   CacheService cacheService;
 
+  late final UserCache userCache;
   late final MessengerStore messengerStore;
   late final LongPollService longPollService;
 
@@ -43,10 +47,16 @@ class OpenVkClient {
     this.enableLogging = kDebugMode,
     CacheService? cacheService,
     http.Client? httpClient,
+    UserCache? userCache,
   }) : instanceId = instanceId ?? _deriveInstanceId(baseUrl),
        cacheService = cacheService ?? CacheService(),
        _httpClient = httpClient ?? http.Client() {
-    messengerStore = MessengerStore();
+    this.userCache = userCache ??
+        UserCache(
+          fetchUsersHandler: fetchUsers,
+          fetchGroupsHandler: fetchGroups,
+        );
+    messengerStore = MessengerStore(userCache: this.userCache);
     longPollService = LongPollService(
       client: this,
       store: messengerStore,
@@ -80,6 +90,66 @@ class OpenVkClient {
     accessToken = null;
     longPollService.stop();
     messengerStore.clear();
+    userCache.clear();
+  }
+
+  /// Fetches basic user info from API (users.get) for UserCache or callers.
+  Future<List<User>> fetchUsers(List<int> userIds) async {
+    if (userIds.isEmpty) return const [];
+    try {
+      final res = await call<List<User>>(
+        'users.get',
+        params: {
+          'user_ids': userIds.join(','),
+          'fields': 'photo_50,photo_100,online',
+        },
+        parser: (json) {
+          if (json is List) {
+            return json
+                .map((item) => User.fromJson(JsonSafe.toMap(item)))
+                .toList();
+          }
+          return const [];
+        },
+        fallback: () => const [],
+      );
+      return res.dataOrNull ?? const [];
+    } catch (e) {
+      debugPrint('[OpenVkClient] fetchUsers error: $e');
+      return const [];
+    }
+  }
+
+  /// Fetches community info from API (groups.getById) for UserCache or callers.
+  Future<List<Group>> fetchGroups(List<int> groupIds) async {
+    if (groupIds.isEmpty) return const [];
+    try {
+      final res = await call<List<Group>>(
+        'groups.getById',
+        params: {
+          'group_ids': groupIds.map((id) => id.abs()).join(','),
+          'fields': 'photo_50,photo_100',
+        },
+        parser: (json) {
+          if (json is List) {
+            return json
+                .map((item) => Group.fromJson(JsonSafe.toMap(item)))
+                .toList();
+          }
+          if (json is Map && json['items'] is List) {
+            return (json['items'] as List)
+                .map((item) => Group.fromJson(JsonSafe.toMap(item)))
+                .toList();
+          }
+          return const [];
+        },
+        fallback: () => const [],
+      );
+      return res.dataOrNull ?? const [];
+    } catch (e) {
+      debugPrint('[OpenVkClient] fetchGroups error: $e');
+      return const [];
+    }
   }
 
   Future<ApiResponse<T>> call<T>(

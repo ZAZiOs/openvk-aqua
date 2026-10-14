@@ -272,7 +272,12 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                 child: ValueListenableBuilder<Message>(
                   valueListenable: msgNotifier,
                   builder: (context, message, _) {
-                    return _buildMessageBubble(message);
+                    return ValueListenableBuilder<int>(
+                      valueListenable: widget.client.userCache.revision,
+                      builder: (context, _, __) {
+                        return _buildMessageBubble(message);
+                      },
+                    );
                   },
                 ),
               );
@@ -285,8 +290,20 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   Widget _buildMessageBubble(Message message) {
     final isOut = message.isOut || message.fromId == widget.currentUserId;
-    final sender = widget.client.messengerStore.profiles[message.fromId];
-    final senderName = sender?.fullName ?? (isOut ? 'Вы' : 'Собеседник');
+    final cache = widget.client.userCache;
+    final sender = cache.getUser(message.fromId);
+    if (sender == null && message.fromId > 0) {
+      cache.requestUser(message.fromId);
+    } else if (sender == null && message.fromId < 0) {
+      cache.requestGroup(message.fromId.abs());
+    }
+
+    final senderName = sender?.fullName ??
+        (isOut
+            ? 'Вы'
+            : (cache.getSenderName(message.fromId).isNotEmpty
+                ? cache.getSenderName(message.fromId)
+                : 'Собеседник'));
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
