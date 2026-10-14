@@ -3,6 +3,7 @@ export 'api/auth_handler.dart';
 export 'api/longpoll/longpoll_service.dart';
 export 'api/messages_handler.dart';
 export 'api/openvk_client.dart';
+export 'api/wall_handler.dart';
 export 'cache/cache_policy.dart';
 export 'cache/cache_service.dart';
 export 'cache/user_cache.dart';
@@ -14,5 +15,8 @@ export 'models/conversations_response.dart';
 export 'models/group.dart';
 export 'models/history_response.dart';
 export 'models/message.dart';
+export 'models/post.dart';
 export 'models/user.dart';
+export 'models/wall_response.dart';
 export 'utils/json_safe.dart';
+

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:openvk_flutter/core/api/openvk_client.dart';
 import 'package:openvk_flutter/core/models/conversation.dart';
-import 'package:openvk_flutter/core/models/conversations_response.dart';
 import 'package:openvk_flutter/core/models/history_response.dart';
 import 'package:openvk_flutter/core/models/message.dart';
 import 'package:openvk_flutter/core/models/user.dart';

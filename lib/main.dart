@@ -8,6 +8,7 @@ import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
 import 'ui/views/messages/messages_view.dart';
 import 'ui/views/settings/settings_view.dart';
+import 'ui/views/wall/wall_view.dart';
 import 'ui/widgets/retro_app_bar.dart';
 import 'ui/widgets/retro_bottom_bar.dart';
 import 'ui/widgets/retro_loading_indicator.dart';
@@ -388,10 +389,13 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     double screenWidth = double.infinity,
   }) {
     final bool isMessages = _currentSection == RetroSection.messages;
+    final bool isWall = _currentSection == RetroSection.profile;
     final bool hideSidebar = isWide || (isMessages && screenWidth < 360);
 
     Widget? appBarTitleWidget;
     String? appBarTitle = _currentSection.title;
+    Widget? appBarLeading;
+    List<Widget>? appBarActions;
 
     if (isMessages) {
       appBarTitle = null;
@@ -404,13 +408,29 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         onSelected: (filter) => setState(() => _messagesFilter = filter),
         hasShadow: false,
       );
+      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
+    } else if (isWall) {
+      appBarTitle = 'Моя Стена';
+      appBarLeading = RetroHeaderButton(
+        text: 'Настройки',
+        onPressed: () => setState(() => _currentSection = RetroSection.settings),
+      );
+      appBarActions = [
+        RetroHeaderButton(
+          text: 'Редакт.',
+          onPressed: () => setState(() => _currentSection = RetroSection.settings),
+        ),
+      ];
+    } else {
+      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
     }
 
     return Scaffold(
       appBar: RetroAppBar(
         title: appBarTitle,
         titleWidget: appBarTitleWidget,
-        leading: hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer),
+        leading: appBarLeading,
+        actions: appBarActions,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
@@ -475,6 +495,16 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         client: widget.client,
         account: widget.account,
         filter: _messagesFilter,
+      );
+    }
+
+    if (_currentSection == RetroSection.profile) {
+      return WallView(
+        key: const PageStorageKey('wall_view'),
+        client: widget.client,
+        account: widget.account,
+        onOpenSettings: () => setState(() => _currentSection = RetroSection.settings),
+        onOpenEditProfile: () => setState(() => _currentSection = RetroSection.settings),
       );
     }
     if (_currentSection == RetroSection.news) {

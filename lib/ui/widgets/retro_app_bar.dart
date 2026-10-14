@@ -43,13 +43,6 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
             Container(
               decoration: const BoxDecoration(
                 gradient: RetroTheme.headerGradient,
-                boxShadow: [
-                  BoxShadow(
-                    color: Color(0x33000000),
-                    offset: Offset(0, 2),
-                    blurRadius: 4,
-                  ),
-                ],
               ),
               child: SafeArea(
                 bottom: false,
@@ -59,12 +52,26 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
                     SizedBox(
                       height: kToolbarHeight - 2,
                       child: NavigationToolbar(
-                        leading:
-                            leading ??
-                            (showBackButton
+                        leading: leading != null
+                            ? Padding(
+                                padding: const EdgeInsets.only(left: 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [leading!],
+                                ),
+                              )
+                            : (showBackButton
                                 ? Padding(
-                                    padding: const EdgeInsets.only(left: 4),
-                                    child: _buildRetroBackButton(context),
+                                    padding: const EdgeInsets.only(left: 8),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        _buildRetroBackButton(context),
+                                      ],
+                                    ),
                                   )
                                 : null),
                         middle:
@@ -88,9 +95,10 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
                                 : null),
                         trailing: actions != null
                             ? Padding(
-                                padding: const EdgeInsets.only(right: 4),
+                                padding: const EdgeInsets.only(right: 8),
                                 child: Row(
                                   mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
                                   children: actions!,
                                 ),
                               )
@@ -100,7 +108,7 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
                     ),
 
                     Container(height: 1, color: RetroTheme.headerBorder),
-                    if (bottom != null) bottom!,
+                    ?bottom,
                   ],
                 ),
               ),
@@ -125,11 +133,12 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   Widget _buildRetroBackButton(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
       child: InkWell(
         onTap: onBackPressed ?? () => Navigator.of(context).maybePop(),
         borderRadius: BorderRadius.circular(5),
         child: Container(
+          height: 30,
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(5),
@@ -139,13 +148,6 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
               end: Alignment.bottomCenter,
               colors: [Color(0xFF4C75A3), Color(0xFF2A5280)],
             ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x40000000),
-                offset: Offset(0, 1),
-                blurRadius: 2,
-              ),
-            ],
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
@@ -183,7 +185,7 @@ class RetroMenuButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
       child: InkWell(
         onTap: onPressed,
         borderRadius: BorderRadius.circular(5),
@@ -227,6 +229,74 @@ class RetroMenuButton extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(1),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class RetroHeaderButton extends StatelessWidget {
+  final String text;
+  final IconData? icon;
+  final VoidCallback? onPressed;
+  final EdgeInsetsGeometry padding;
+
+  const RetroHeaderButton({
+    super.key,
+    required this.text,
+    this.icon,
+    this.onPressed,
+    this.padding = const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(5),
+          child: Container(
+            height: 30,
+            padding: padding,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: const Color(0xFF1B3D66), width: 1),
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF4C75A3), Color(0xFF2A5280)],
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: 14, color: Colors.white),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  text,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    shadows: [
+                      Shadow(
+                        color: Color(0x80000000),
+                        offset: Offset(0, -1),
+                        blurRadius: 1,
+                      ),
+                    ],
                   ),
                 ),
               ],
