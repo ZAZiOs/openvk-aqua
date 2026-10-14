@@ -2,9 +2,9 @@ name: Build Flutter Apps
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "workflow-setup" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "workflow-setup" ]
   workflow_dispatch:
 
 jobs:
