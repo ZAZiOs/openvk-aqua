@@ -26,7 +26,8 @@ void main() async {
       systemNavigationBarColor: Color(0xFF121212),
       systemNavigationBarIconBrightness: Brightness.light,
       systemNavigationBarDividerColor: Color(0xFF000000),
-      statusBarColor: Colors.transparent,
+      statusBarColor: Colors.black,
+      statusBarBrightness: Brightness.dark,
       statusBarIconBrightness: Brightness.light,
     ),
   );
@@ -162,19 +163,26 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
   }
 
   void _handleDragStart(DragStartDetails details) {
-    _canDrag = _drawerController.value > 0 || details.localPosition.dx < 48;
+    _canDrag = true;
   }
 
   void _handleDragUpdate(DragUpdateDetails details) {
     if (!_canDrag) return;
     final delta = details.primaryDelta ?? 0;
-    _drawerController.value += delta / _currentSidebarWidth;
+    // When closed, only react to swiping right
+    if (_drawerController.value <= 0 && delta <= 0) {
+      return;
+    }
+    final nextVal =
+        (_drawerController.value + delta / _currentSidebarWidth).clamp(0.0, 1.0);
+    _drawerController.value = nextVal;
   }
 
   void _handleDragEnd(DragEndDetails details) {
     if (!_canDrag) return;
+    _canDrag = false;
     final velocity = details.primaryVelocity ?? 0;
-    if (velocity.abs() > 365) {
+    if (velocity.abs() > 300) {
       if (velocity > 0) {
         _drawerController.animateTo(
           1.0,
@@ -189,7 +197,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         );
       }
     } else {
-      if (_drawerController.value >= 0.5) {
+      if (_drawerController.value >= 0.4) {
         _drawerController.animateTo(
           1.0,
           duration: const Duration(milliseconds: 250),
@@ -201,6 +209,17 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOutCubic,
         );
+      }
+    }
+  }
+
+  void _handleDragCancel() {
+    _canDrag = false;
+    if (_drawerController.value > 0 && _drawerController.value < 1.0) {
+      if (_drawerController.value >= 0.4) {
+        _drawerController.animateTo(1.0, curve: Curves.easeOutCubic);
+      } else {
+        _drawerController.animateTo(0.0, curve: Curves.easeOutCubic);
       }
     }
   }
@@ -276,6 +295,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
           onHorizontalDragStart: _handleDragStart,
           onHorizontalDragUpdate: _handleDragUpdate,
           onHorizontalDragEnd: _handleDragEnd,
+          onHorizontalDragCancel: _handleDragCancel,
           behavior: HitTestBehavior.translucent,
           child: Stack(
             children: [

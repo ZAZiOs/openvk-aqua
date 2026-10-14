@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../theme/retro_theme.dart';
 
@@ -31,101 +32,133 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      color: Colors.black,
-      child: ClipRRect(
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(cornerRadius),
-          topRight: Radius.circular(cornerRadius),
-        ),
-        child: Stack(
-          children: [
-            Container(
-              decoration: const BoxDecoration(
-                gradient: RetroTheme.headerGradient,
-              ),
-              child: SafeArea(
-                bottom: false,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    SizedBox(
-                      height: kToolbarHeight - 2,
-                      child: NavigationToolbar(
-                        leading: leading != null
-                            ? Padding(
-                                padding: const EdgeInsets.only(left: 8),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: [leading!],
-                                ),
-                              )
-                            : (showBackButton
-                                ? Padding(
-                                    padding: const EdgeInsets.only(left: 8),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.center,
-                                      children: [
-                                        _buildRetroBackButton(context),
-                                      ],
-                                    ),
-                                  )
-                                : null),
-                        middle:
-                            titleWidget ??
-                            (title != null
-                                ? Text(
-                                    title!,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      shadows: [
-                                        Shadow(
-                                          color: Color(0x99000000),
-                                          offset: Offset(0, -1),
-                                          blurRadius: 1,
-                                        ),
-                                      ],
-                                    ),
-                                  )
-                                : null),
-                        trailing: actions != null
-                            ? Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.center,
-                                  children: actions!,
-                                ),
-                              )
-                            : null,
-                        centerMiddle: true,
-                      ),
+    final double topPadding = MediaQuery.paddingOf(context).top;
+
+    final Widget barContent = ClipRRect(
+      borderRadius: BorderRadius.only(
+        topLeft: Radius.circular(cornerRadius),
+        topRight: Radius.circular(cornerRadius),
+      ),
+      child: Stack(
+        children: [
+          Container(
+            decoration: const BoxDecoration(
+              gradient: RetroTheme.headerGradient,
+            ),
+            child: SafeArea(
+              top: false,
+              bottom: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    height: kToolbarHeight - 2,
+                    child: NavigationToolbar(
+                      leading: leading != null
+                          ? Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [leading!],
+                              ),
+                            )
+                          : (showBackButton
+                              ? Padding(
+                                  padding: const EdgeInsets.only(left: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.center,
+                                    children: [
+                                      _buildRetroBackButton(context),
+                                    ],
+                                  ),
+                                )
+                              : null),
+                      middle:
+                          titleWidget ??
+                          (title != null
+                              ? Text(
+                                  title!,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    shadows: [
+                                      Shadow(
+                                        color: Color(0x99000000),
+                                        offset: Offset(0, -1),
+                                        blurRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              : null),
+                      trailing: actions != null
+                          ? Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: actions!,
+                              ),
+                            )
+                          : null,
+                      centerMiddle: true,
                     ),
-
-                    Container(height: 1, color: RetroTheme.headerBorder),
-                    ?bottom,
-                  ],
-                ),
-              ),
-            ),
-
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(
-                  painter: _RetroTopHighlightPainter(
-                    cornerRadius: cornerRadius,
-                    color: Colors.white.withValues(alpha: 0.30),
-                    strokeWidth: 2.0,
                   ),
+
+                  Container(height: 1, color: RetroTheme.headerBorder),
+                  ?bottom,
+                ],
+              ),
+            ),
+          ),
+
+          Positioned.fill(
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: _RetroTopHighlightPainter(
+                  cornerRadius: cornerRadius,
+                  color: Colors.white.withValues(alpha: 0.30),
+                  strokeWidth: 2.0,
                 ),
               ),
             ),
-          ],
+          ),
+        ],
+      ),
+    );
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        statusBarBrightness: Brightness.dark,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFF121212),
+        systemNavigationBarIconBrightness: Brightness.light,
+        systemNavigationBarDividerColor: Color(0xFF000000),
+      ),
+      child: Container(
+        color: Colors.black,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (topPadding > 0) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(height: topPadding),
+                  if (constraints.hasBoundedHeight)
+                    Expanded(child: barContent)
+                  else
+                    barContent,
+                ],
+              );
+            }
+            return barContent;
+          },
         ),
       ),
     );

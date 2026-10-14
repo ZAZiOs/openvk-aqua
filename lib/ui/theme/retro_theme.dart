@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 class RetroTheme {
   const RetroTheme._();
@@ -74,6 +75,14 @@ class RetroTheme {
         centerTitle: true,
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.white,
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.black,
+          statusBarBrightness: Brightness.dark,
+          statusBarIconBrightness: Brightness.light,
+          systemNavigationBarColor: Color(0xFF121212),
+          systemNavigationBarIconBrightness: Brightness.light,
+          systemNavigationBarDividerColor: Color(0xFF000000),
+        ),
       ),
     );
   }

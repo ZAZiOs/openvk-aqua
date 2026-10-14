@@ -992,15 +992,11 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           top: BorderSide(color: Color(0xFFC7D0DA), width: 1),
         ),
       ),
-      padding: EdgeInsets.only(
-        left: 10,
-        right: 10,
-        top: 8,
-        bottom: 8 + MediaQuery.of(context).viewInsets.bottom,
-      ),
       child: SafeArea(
         top: false,
-        child: Row(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Row(
           children: [
             Expanded(
               child: Container(
@@ -1068,6 +1064,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }
