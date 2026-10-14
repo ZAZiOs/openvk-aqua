@@ -24,7 +24,7 @@ class User {
   String get avatarUrl => photo100.isNotEmpty ? photo100 : photo50;
 
   factory User.fromJson(Map<String, dynamic> json) {
-    final id = JsonSafe.toInt(json['id']);
+    final id = JsonSafe.toInt(json['id'] ?? json['uid']);
 
     final isGroup = id < 0 || json.containsKey('name');
 
@@ -34,8 +34,12 @@ class User {
         id: id < 0 ? id : -id,
         firstName: name,
         lastName: '',
-        photo50: JsonSafe.toStr(json['photo_50']),
-        photo100: JsonSafe.toStr(json['photo_100']),
+        photo50: JsonSafe.toStr(
+          json['photo_50'] ?? json['photo_rec'] ?? json['photo'],
+        ),
+        photo100: JsonSafe.toStr(
+          json['photo_100'] ?? json['photo_medium_rec'] ?? json['photo_medium'],
+        ),
         isOnline: false,
         isGroup: true,
       );
@@ -45,8 +49,12 @@ class User {
       id: id,
       firstName: JsonSafe.toStr(json['first_name'], 'Пользователь'),
       lastName: JsonSafe.toStr(json['last_name']),
-      photo50: JsonSafe.toStr(json['photo_50']),
-      photo100: JsonSafe.toStr(json['photo_100']),
+      photo50: JsonSafe.toStr(
+        json['photo_50'] ?? json['photo_rec'] ?? json['photo'],
+      ),
+      photo100: JsonSafe.toStr(
+        json['photo_100'] ?? json['photo_medium_rec'] ?? json['photo_medium'],
+      ),
       isOnline: JsonSafe.toBool(json['online']),
       isGroup: false,
     );

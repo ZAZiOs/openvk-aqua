@@ -9,6 +9,7 @@ import '../cache/cache_policy.dart';
 import '../cache/cache_service.dart';
 import '../cache/user_cache.dart';
 import '../models/group.dart';
+import '../models/message.dart';
 import '../models/user.dart';
 import '../store/messenger_store.dart';
 import '../utils/json_safe.dart';
@@ -56,7 +57,10 @@ class OpenVkClient {
           fetchUsersHandler: fetchUsers,
           fetchGroupsHandler: fetchGroups,
         );
-    messengerStore = MessengerStore(userCache: this.userCache);
+    messengerStore = MessengerStore(
+      userCache: this.userCache,
+      fetchMessagesHandler: fetchMessagesById,
+    );
     longPollService = LongPollService(
       client: this,
       store: messengerStore,
@@ -91,6 +95,7 @@ class OpenVkClient {
     longPollService.stop();
     messengerStore.clear();
     userCache.clear();
+    cacheService.invalidateMessagesCache(instanceId);
   }
 
   /// Fetches basic user info from API (users.get) for UserCache or callers.
@@ -148,6 +153,57 @@ class OpenVkClient {
       return res.dataOrNull ?? const [];
     } catch (e) {
       debugPrint('[OpenVkClient] fetchGroups error: $e');
+      return const [];
+    }
+  }
+
+  /// Fetches messages by IDs using messages.getById
+  Future<List<Message>> fetchMessagesById(List<int> messageIds) async {
+    if (messageIds.isEmpty) return const [];
+    try {
+      final res = await call<Map<String, dynamic>>(
+        'messages.getById',
+        params: {
+          'message_ids': messageIds.join(','),
+          'extended': 1,
+          'fields': 'photo_50,photo_100,online',
+        },
+        parser: (json) {
+          if (json is Map) return Map<String, dynamic>.from(json);
+          if (json is List) return {'items': json};
+          return {};
+        },
+        fallback: () => const {},
+      );
+
+      if (res.isSuccess && res.dataOrNull != null) {
+        final data = res.dataOrNull!;
+        final rawItems = data['items'] ?? data;
+        final messages = JsonSafe.toList(
+          rawItems,
+          (m) => Message.fromJson(JsonSafe.toMap(m)),
+        );
+
+        if (data['profiles'] != null) {
+          final users = JsonSafe.toList(
+            data['profiles'],
+            (u) => User.fromJson(JsonSafe.toMap(u)),
+          );
+          userCache.putUsers(users);
+        }
+        if (data['groups'] != null) {
+          final groups = JsonSafe.toList(
+            data['groups'],
+            (g) => Group.fromJson(JsonSafe.toMap(g)),
+          );
+          userCache.putGroups(groups);
+        }
+
+        return messages;
+      }
+      return const [];
+    } catch (e) {
+      debugPrint('[OpenVkClient] fetchMessagesById error: $e');
       return const [];
     }
   }

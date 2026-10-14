@@ -186,16 +186,42 @@ class StickerAttachment {
     required this.images,
   });
 
-  String get bestImage => images.isNotEmpty ? images.last : '';
+  String get bestImage {
+    if (images.isNotEmpty) return images.last;
+    if (stickerId > 0) {
+      return 'https://vk.com/sticker/1-$stickerId-256b.png';
+    }
+    return '';
+  }
 
   factory StickerAttachment.fromJson(Map<String, dynamic> json) {
     final images = JsonSafe.toList(
-      json['images'],
+      json['images'] ?? json['images_with_background'],
       (img) => JsonSafe.toStr(JsonSafe.toMap(img)['url']),
     );
 
+    if (images.isEmpty) {
+      for (final key in [
+        'photo_512',
+        'photo_352',
+        'photo_256',
+        'photo_128',
+        'photo_64',
+        'url'
+      ]) {
+        if (json.containsKey(key)) {
+          final url = JsonSafe.toStr(json[key]);
+          if (url.isNotEmpty) {
+            images.add(url);
+          }
+        }
+      }
+    }
+
+    final id = JsonSafe.toInt(json['sticker_id'] ?? json['id']);
+
     return StickerAttachment(
-      stickerId: JsonSafe.toInt(json['sticker_id']),
+      stickerId: id,
       productId: JsonSafe.toInt(json['product_id']),
       animationUrl: JsonSafe.toStr(json['animation_url']),
       images: images,

@@ -114,7 +114,6 @@ class _MessagesViewState extends State<MessagesView> {
       count: 10,
       filter: 'unread',
       extended: true,
-      cachePolicy: CachePolicy.networkFirst,
     );
 
     if (!mounted) return;
@@ -151,7 +150,6 @@ class _MessagesViewState extends State<MessagesView> {
       count: currentCount,
       filter: _currentFilter,
       extended: true,
-      cachePolicy: refresh ? CachePolicy.networkFirst : CachePolicy.cacheFirst,
     );
 
     if (!mounted) return;
@@ -172,7 +170,9 @@ class _MessagesViewState extends State<MessagesView> {
       });
     } else {
       setState(() {
-        _errorMessage = res.errorOrNull?.message ?? 'Ошибка загрузки диалогов';
+        if (currentList.isEmpty) {
+          _errorMessage = res.errorOrNull?.message ?? 'Ошибка загрузки диалогов';
+        }
         _isLoading = false;
       });
     }
@@ -192,7 +192,6 @@ class _MessagesViewState extends State<MessagesView> {
       count: currentCount,
       filter: _currentFilter,
       extended: true,
-      cachePolicy: CachePolicy.networkFirst,
     );
 
     if (!mounted) return;

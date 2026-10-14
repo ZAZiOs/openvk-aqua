@@ -18,7 +18,12 @@ class UserCache {
   final Map<int, Chat> _chats = {};
 
   final Set<int> _pendingUserIds = {};
+  final Set<int> _inFlightUserIds = {};
+  final Set<int> _failedUserIds = {};
+
   final Set<int> _pendingGroupIds = {};
+  final Set<int> _inFlightGroupIds = {};
+  final Set<int> _failedGroupIds = {};
 
   Timer? _batchUserTimer;
   Timer? _batchGroupTimer;
@@ -38,8 +43,23 @@ class UserCache {
   Map<int, Group> get groups => _groups;
   Map<int, Chat> get chats => _chats;
 
-  User? getUser(int id) => _users[id];
-  Group? getGroup(int id) => _groups[id];
+  User? getUser(int id, {bool autoFetch = true}) {
+    final user = _users[id];
+    if (user == null && autoFetch && id > 0) {
+      requestUser(id);
+    }
+    return user;
+  }
+
+  Group? getGroup(int id, {bool autoFetch = true}) {
+    final absId = id.abs();
+    final group = _groups[absId];
+    if (group == null && autoFetch && absId > 0) {
+      requestGroup(absId);
+    }
+    return group;
+  }
+
   Chat? getChat(int id) => _chats[id];
 
   bool hasUser(int id) => _users.containsKey(id);
@@ -49,6 +69,7 @@ class UserCache {
   /// Stores or updates a user profile with the latest information.
   void putUser(User user) {
     _users[user.id] = user;
+    _failedUserIds.remove(user.id);
     _notifyRevision();
   }
 
@@ -57,6 +78,7 @@ class UserCache {
     if (newUsers.isEmpty) return;
     for (final u in newUsers) {
       _users[u.id] = u;
+      _failedUserIds.remove(u.id);
     }
     _notifyRevision();
   }
@@ -64,6 +86,7 @@ class UserCache {
   /// Stores or updates a community/group with the latest information.
   void putGroup(Group group) {
     _groups[group.id] = group;
+    _failedGroupIds.remove(group.id);
     _notifyRevision();
   }
 
@@ -72,6 +95,7 @@ class UserCache {
     if (newGroups.isEmpty) return;
     for (final g in newGroups) {
       _groups[g.id] = g;
+      _failedGroupIds.remove(g.id);
     }
     _notifyRevision();
   }
@@ -98,12 +122,15 @@ class UserCache {
       if (user != null) {
         return user.firstName.isNotEmpty ? user.firstName : user.fullName;
       }
+      requestUser(fromId);
       return '';
     } else if (fromId < 0) {
-      final group = _groups[fromId.abs()];
+      final absId = fromId.abs();
+      final group = _groups[absId];
       if (group != null) {
         return group.name;
       }
+      requestGroup(absId);
       return '';
     }
     return '';
@@ -122,12 +149,16 @@ class UserCache {
 
     if (item.isGroup) {
       final groupId = item.peerId.abs();
-      return _groups[groupId]?.name ?? 'Сообщество #$groupId';
+      final group = _groups[groupId];
+      if (group != null && group.name.isNotEmpty) return group.name;
+      requestGroup(groupId);
+      return 'Сообщество #$groupId';
     }
 
     final user = _users[item.peerId];
-    if (user != null) return user.fullName;
+    if (user != null && user.fullName.isNotEmpty) return user.fullName;
 
+    requestUser(item.peerId);
     return 'Пользователь #${item.peerId}';
   }
 
@@ -144,58 +175,94 @@ class UserCache {
 
     if (item.isGroup) {
       final groupId = item.peerId.abs();
-      return _groups[groupId]?.avatarUrl;
+      final group = _groups[groupId];
+      if (group == null) requestGroup(groupId);
+      return group?.avatarUrl;
     }
 
-    return _users[item.peerId]?.avatarUrl;
+    final user = _users[item.peerId];
+    if (user == null) requestUser(item.peerId);
+    return user?.avatarUrl;
   }
 
   /// Requests a user to be fetched in background if not already cached.
-  /// Automatically batches multiple requests within 50ms into a single API call.
+  /// Automatically batches multiple requests into a single API call.
   void requestUser(int userId) {
-    if (userId <= 0 || _users.containsKey(userId) || _pendingUserIds.contains(userId)) {
+    if (userId <= 0 ||
+        _users.containsKey(userId) ||
+        _pendingUserIds.contains(userId) ||
+        _inFlightUserIds.contains(userId) ||
+        _failedUserIds.contains(userId)) {
       return;
     }
     if (fetchUsersHandler == null) return;
 
     _pendingUserIds.add(userId);
     _batchUserTimer?.cancel();
-    _batchUserTimer = Timer(const Duration(milliseconds: 50), () async {
-      final idsToFetch = _pendingUserIds.toList();
-      _pendingUserIds.clear();
-      if (idsToFetch.isEmpty) return;
+    _batchUserTimer = Timer(const Duration(milliseconds: 30), _flushPendingUsers);
+  }
 
-      try {
-        final fetched = await fetchUsersHandler!(idsToFetch);
-        putUsers(fetched);
-      } catch (e) {
-        debugPrint('[UserCache] Ошибка фоновой загрузки пользователей $idsToFetch: $e');
+  Future<void> _flushPendingUsers() async {
+    final idsToFetch = _pendingUserIds.toList();
+    _pendingUserIds.clear();
+    if (idsToFetch.isEmpty) return;
+
+    _inFlightUserIds.addAll(idsToFetch);
+
+    try {
+      final fetched = await fetchUsersHandler!(idsToFetch);
+      putUsers(fetched);
+
+      for (final id in idsToFetch) {
+        if (!_users.containsKey(id)) {
+          _failedUserIds.add(id);
+        }
       }
-    });
+    } catch (e) {
+      debugPrint('[UserCache] Ошибка фоновой загрузки пользователей $idsToFetch: $e');
+    } finally {
+      _inFlightUserIds.removeAll(idsToFetch);
+    }
   }
 
   /// Requests a group to be fetched in background if not already cached.
   void requestGroup(int groupId) {
     final absId = groupId.abs();
-    if (absId <= 0 || _groups.containsKey(absId) || _pendingGroupIds.contains(absId)) {
+    if (absId <= 0 ||
+        _groups.containsKey(absId) ||
+        _pendingGroupIds.contains(absId) ||
+        _inFlightGroupIds.contains(absId) ||
+        _failedGroupIds.contains(absId)) {
       return;
     }
     if (fetchGroupsHandler == null) return;
 
     _pendingGroupIds.add(absId);
     _batchGroupTimer?.cancel();
-    _batchGroupTimer = Timer(const Duration(milliseconds: 50), () async {
-      final idsToFetch = _pendingGroupIds.toList();
-      _pendingGroupIds.clear();
-      if (idsToFetch.isEmpty) return;
+    _batchGroupTimer = Timer(const Duration(milliseconds: 30), _flushPendingGroups);
+  }
 
-      try {
-        final fetched = await fetchGroupsHandler!(idsToFetch);
-        putGroups(fetched);
-      } catch (e) {
-        debugPrint('[UserCache] Ошибка фоновой загрузки сообществ $idsToFetch: $e');
+  Future<void> _flushPendingGroups() async {
+    final idsToFetch = _pendingGroupIds.toList();
+    _pendingGroupIds.clear();
+    if (idsToFetch.isEmpty) return;
+
+    _inFlightGroupIds.addAll(idsToFetch);
+
+    try {
+      final fetched = await fetchGroupsHandler!(idsToFetch);
+      putGroups(fetched);
+
+      for (final id in idsToFetch) {
+        if (!_groups.containsKey(id)) {
+          _failedGroupIds.add(id);
+        }
       }
-    });
+    } catch (e) {
+      debugPrint('[UserCache] Ошибка фоновой загрузки сообществ $idsToFetch: $e');
+    } finally {
+      _inFlightGroupIds.removeAll(idsToFetch);
+    }
   }
 
   void _notifyRevision() {
@@ -207,7 +274,11 @@ class UserCache {
     _batchUserTimer?.cancel();
     _batchGroupTimer?.cancel();
     _pendingUserIds.clear();
+    _inFlightUserIds.clear();
+    _failedUserIds.clear();
     _pendingGroupIds.clear();
+    _inFlightGroupIds.clear();
+    _failedGroupIds.clear();
     _users.clear();
     _groups.clear();
     _chats.clear();

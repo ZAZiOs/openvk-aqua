@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -11,8 +12,11 @@ import '../models/history_response.dart';
 import '../models/message.dart';
 import '../models/user.dart';
 
+typedef FetchMessagesCallback = Future<List<Message>> Function(List<int> messageIds);
+
 class MessengerStore {
   final UserCache userCache;
+  final FetchMessagesCallback? fetchMessagesHandler;
 
   final ValueNotifier<List<int>> conversationOrder = ValueNotifier<List<int>>([]);
   final ValueNotifier<List<int>> unreadConversationOrder = ValueNotifier<List<int>>([]);
@@ -22,14 +26,24 @@ class MessengerStore {
   final Map<int, ValueNotifier<List<int>>> _chatMessageOrders = {};
   final Map<int, ValueNotifier<Message>> _messageNotifiers = {};
 
+  final Set<int> _pendingMessageIds = {};
+  final Set<int> _inFlightMessageIds = {};
+  final Set<int> _failedMessageIds = {};
+  Timer? _batchMessageTimer;
+
   int currentUserId = 0;
 
-  MessengerStore({UserCache? userCache})
-      : userCache = userCache ?? UserCache();
+  MessengerStore({
+    UserCache? userCache,
+    this.fetchMessagesHandler,
+  }) : userCache = userCache ?? UserCache();
 
   Map<int, User> get profiles => userCache.users;
   Map<int, Group> get groups => userCache.groups;
   Map<int, Chat> get chats => userCache.chats;
+
+  bool get hasAnyConversations =>
+      conversationOrder.value.isNotEmpty || _conversationNotifiers.isNotEmpty;
 
   ValueNotifier<ConversationItem>? getConversationNotifier(int peerId) {
     return _conversationNotifiers[peerId];
@@ -59,6 +73,92 @@ class MessengerStore {
     return _messageNotifiers[messageId]?.value;
   }
 
+  void requestMessage(int messageId) {
+    if (messageId <= 0) {
+      return;
+    }
+    if (_messageNotifiers.containsKey(messageId)) {
+      return;
+    }
+    if (_inFlightMessageIds.contains(messageId) ||
+        _failedMessageIds.contains(messageId)) {
+      return;
+    }
+
+    _pendingMessageIds.add(messageId);
+    _batchMessageTimer?.cancel();
+    _batchMessageTimer =
+        Timer(const Duration(milliseconds: 30), _flushPendingMessages);
+  }
+
+  Future<void> _flushPendingMessages() async {
+    if (_pendingMessageIds.isEmpty) return;
+    final idsToFetch = _pendingMessageIds.take(100).toList();
+    _pendingMessageIds.removeAll(idsToFetch);
+    _inFlightMessageIds.addAll(idsToFetch);
+
+    if (fetchMessagesHandler != null) {
+      try {
+        final messages = await fetchMessagesHandler!(idsToFetch);
+        for (final msg in messages) {
+          putMessage(msg);
+        }
+      } catch (e) {
+        debugPrint('[MessengerStore] error fetching messages: $e');
+        _failedMessageIds.addAll(idsToFetch);
+      } finally {
+        _inFlightMessageIds.removeAll(idsToFetch);
+      }
+    } else {
+      _inFlightMessageIds.removeAll(idsToFetch);
+    }
+  }
+
+  void putMessage(Message message) {
+    if (_messageNotifiers.containsKey(message.id)) {
+      _messageNotifiers[message.id]!.value = message;
+    } else {
+      _messageNotifiers[message.id] = ValueNotifier<Message>(message);
+    }
+    _failedMessageIds.remove(message.id);
+
+    if (message.replyMessage != null) {
+      putMessage(message.replyMessage!);
+    }
+
+    // Connect this message to any other messages waiting for this id as a reply:
+    for (final notifier in _messageNotifiers.values) {
+      if (notifier.value.replyMessageId == message.id &&
+          notifier.value.replyMessage == null) {
+        notifier.value = notifier.value.copyWith(replyMessage: message);
+      }
+    }
+
+    // If this message has a replyMessageId but replyMessage is null, try resolving from cache:
+    if (message.replyMessageId != null && message.replyMessage == null) {
+      final cachedReply = _messageNotifiers[message.replyMessageId]?.value;
+      if (cachedReply != null) {
+        _messageNotifiers[message.id]!.value =
+            message.copyWith(replyMessage: cachedReply);
+      } else {
+        requestMessage(message.replyMessageId!);
+      }
+    }
+
+    // Auto-request sender info if not in cache
+    if (message.fromId > 0 && !userCache.hasUser(message.fromId)) {
+      userCache.requestUser(message.fromId);
+    } else if (message.fromId < 0 && !userCache.hasGroup(message.fromId.abs())) {
+      userCache.requestGroup(message.fromId.abs());
+    }
+  }
+
+  void putMessages(Iterable<Message> messages) {
+    for (final m in messages) {
+      putMessage(m);
+    }
+  }
+
   void setConversations(
     ConversationsResponse response, {
     bool append = false,
@@ -76,6 +176,19 @@ class MessengerStore {
       newPeerIds.add(item.peerId);
       if (filter == 'unread' || item.unreadCount > 0) {
         unreadPeerIds.add(item.peerId);
+      }
+
+      if (item.isUser && !userCache.hasUser(item.peerId)) {
+        userCache.requestUser(item.peerId);
+      } else if (item.isGroup && !userCache.hasGroup(item.peerId.abs())) {
+        userCache.requestGroup(item.peerId.abs());
+      }
+      if (item.lastMessage.fromId > 0 &&
+          !userCache.hasUser(item.lastMessage.fromId)) {
+        userCache.requestUser(item.lastMessage.fromId);
+      } else if (item.lastMessage.fromId < 0 &&
+          !userCache.hasGroup(item.lastMessage.fromId.abs())) {
+        userCache.requestGroup(item.lastMessage.fromId.abs());
       }
     }
 
@@ -142,7 +255,12 @@ class MessengerStore {
     totalUnreadCount.value = response.unreadCount;
   }
 
-  void setHistory(int peerId, HistoryResponse response, {bool append = false}) {
+  void setHistory(
+    int peerId,
+    HistoryResponse response, {
+    bool append = false,
+    bool merge = false,
+  }) {
     userCache.putUsers(response.profiles.values);
     userCache.putGroups(response.groups.values);
 
@@ -150,15 +268,23 @@ class MessengerStore {
     final ids = <int>[];
 
     for (final msg in response.items) {
-      if (_messageNotifiers.containsKey(msg.id)) {
-        _messageNotifiers[msg.id]!.value = msg;
-      } else {
-        _messageNotifiers[msg.id] = ValueNotifier<Message>(msg);
-      }
+      putMessage(msg);
       ids.add(msg.id);
     }
 
-    if (append) {
+    if (merge) {
+      final combined = <int>{...msgOrder.value, ...ids}.toList();
+      combined.sort((a, b) {
+        final msgA = getMessage(a);
+        final msgB = getMessage(b);
+        if (msgA != null && msgB != null) {
+          final cmp = msgB.date.compareTo(msgA.date);
+          if (cmp != 0) return cmp;
+        }
+        return b.compareTo(a);
+      });
+      msgOrder.value = combined;
+    } else if (append) {
       final updated = List<int>.from(msgOrder.value);
       for (final id in ids) {
         if (!updated.contains(id)) {
@@ -211,6 +337,30 @@ class MessengerStore {
       userCache.requestGroup(peerId.abs());
     }
 
+    int? detectedReplyId;
+    if (attachments != null) {
+      if (attachments.containsKey('reply')) {
+        detectedReplyId = int.tryParse(attachments['reply'].toString());
+      } else if (attachments.containsKey('reply_to')) {
+        detectedReplyId = int.tryParse(attachments['reply_to'].toString());
+      }
+    }
+    if (detectedReplyId == null && extraFields != null) {
+      if (extraFields.containsKey('reply')) {
+        detectedReplyId = int.tryParse(extraFields['reply'].toString());
+      } else if (extraFields.containsKey('reply_to')) {
+        detectedReplyId = int.tryParse(extraFields['reply_to'].toString());
+      }
+    }
+
+    Message? resolvedReply;
+    if (detectedReplyId != null && detectedReplyId > 0) {
+      resolvedReply = _messageNotifiers[detectedReplyId]?.value;
+      if (resolvedReply == null) {
+        requestMessage(detectedReplyId);
+      }
+    }
+
     final parsedAttachments = _parseAttachments(attachments);
 
     final newMessage = Message(
@@ -224,17 +374,16 @@ class MessengerStore {
       isUnread: isUnread,
       attachments: parsedAttachments,
       fwdMessages: const [],
+      replyMessage: resolvedReply,
+      replyMessageId: detectedReplyId,
       conversationMessageId: conversationMessageId ?? 0,
       updateTime: timestamp,
     );
 
-    debugPrint('[MessengerStore] 📝 onNewMessage: peerId=$peerId, msgId=$messageId, fromId=$parsedFromId, text="$text", preview="${newMessage.previewText}"');
+    putMessage(newMessage);
 
-    if (_messageNotifiers.containsKey(messageId)) {
-      _messageNotifiers[messageId]!.value = newMessage;
-    } else {
-      _messageNotifiers[messageId] = ValueNotifier<Message>(newMessage);
-    }
+    debugPrint(
+        '[MessengerStore] 📝 onNewMessage: peerId=$peerId, msgId=$messageId, fromId=$parsedFromId, replyId=$detectedReplyId, text="$text", preview="${newMessage.previewText}"');
 
     final chatOrder = getChatMessageOrderNotifier(peerId);
     final currentChatIds = List<int>.from(chatOrder.value);
@@ -430,7 +579,26 @@ class MessengerStore {
       final typeKey = 'attach${i}_type';
       if (!raw.containsKey(typeKey)) break;
       final type = raw[typeKey].toString();
-      list.add(Attachment(type: type));
+      if (type == 'sticker') {
+        final stickerId =
+            int.tryParse(raw['attach$i']?.toString() ?? '') ?? 0;
+        final productId =
+            int.tryParse(raw['attach${i}_product_id']?.toString() ?? '') ?? 0;
+        final url = raw['attach${i}_url']?.toString();
+        list.add(
+          Attachment(
+            type: type,
+            sticker: StickerAttachment(
+              stickerId: stickerId,
+              productId: productId,
+              animationUrl: '',
+              images: url != null && url.isNotEmpty ? [url] : const [],
+            ),
+          ),
+        );
+      } else {
+        list.add(Attachment(type: type));
+      }
     }
     return list;
   }
@@ -442,6 +610,10 @@ class MessengerStore {
     _conversationNotifiers.clear();
     _chatMessageOrders.clear();
     _messageNotifiers.clear();
+    _pendingMessageIds.clear();
+    _inFlightMessageIds.clear();
+    _failedMessageIds.clear();
+    _batchMessageTimer?.cancel();
     userCache.clear();
   }
 }

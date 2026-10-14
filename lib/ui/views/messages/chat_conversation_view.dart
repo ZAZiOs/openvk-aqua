@@ -1,13 +1,15 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/api/messages_handler.dart';
 import '../../../core/api/openvk_client.dart';
-import '../../../core/cache/cache_policy.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/conversations_response.dart';
 import '../../../core/models/message.dart';
 import '../../theme/retro_theme.dart';
 import '../../widgets/retro_app_bar.dart';
+import '../../widgets/retro_attachment_grid.dart';
 import '../../widgets/retro_chat_avatar.dart';
 import '../../widgets/retro_loading_indicator.dart';
 
@@ -39,13 +41,26 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   final ScrollController _scrollController = ScrollController();
 
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _isLoadingNewer = false;
+  bool _isAtLatest = true;
+  bool _showScrollToBottom = false;
+  int? _highlightedMessageId;
+  Timer? _highlightTimer;
+  bool _hasMore = true;
   bool _isSending = false;
+  int _historyOffset = 0;
   String? _errorMessage;
+  final Map<int, GlobalKey> _messageKeys = {};
+
+  GlobalKey _getKeyForMessage(int id) =>
+      _messageKeys.putIfAbsent(id, () => GlobalKey());
 
   @override
   void initState() {
     super.initState();
     _messagesHandler = MessagesHandler(widget.client);
+    _scrollController.addListener(_onScroll);
     _loadHistory();
     _markRead();
   }
@@ -53,8 +68,38 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   @override
   void dispose() {
     _inputController.dispose();
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+
+    // In reverse ListView: maxScrollExtent is the top of the chat (where older messages are)
+    if (pos.pixels >= pos.maxScrollExtent - 250 &&
+        !_isLoading &&
+        !_isLoadingMore &&
+        _hasMore) {
+      _loadMoreHistory();
+    }
+
+    // In reverse ListView: pixels <= 250 is near the bottom (where newer messages are)
+    if (!_isAtLatest &&
+        pos.pixels <= 250 &&
+        !_isLoading &&
+        !_isLoadingNewer) {
+      _loadNewerHistory();
+    }
+
+    final shouldShowScrollToBottom = !_isAtLatest || pos.pixels > 300;
+    if (shouldShowScrollToBottom != _showScrollToBottom) {
+      setState(() {
+        _showScrollToBottom = shouldShowScrollToBottom;
+      });
+    }
   }
 
   Future<void> _markRead() async {
@@ -64,27 +109,236 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   }
 
   Future<void> _loadHistory({bool refresh = false}) async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    final existingMessages = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId)
+        .value;
+
+    if (existingMessages.isEmpty || refresh) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     final res = await _messagesHandler.getHistory(
       peerId: widget.conversation.peerId,
+      offset: 0,
       count: 40,
-      cachePolicy: refresh ? CachePolicy.networkFirst : CachePolicy.cacheFirst,
     );
 
     if (!mounted) return;
 
     if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
       setState(() {
+        _historyOffset = data.items.length;
+        _hasMore = _historyOffset < data.count && data.items.isNotEmpty;
         _isLoading = false;
+        _isAtLatest = true;
+        _errorMessage = null;
       });
     } else {
       setState(() {
-        _errorMessage = res.errorOrNull?.message ?? 'Не удалось загрузить историю сообщений';
+        if (existingMessages.isEmpty) {
+          _errorMessage =
+              res.errorOrNull?.message ?? 'Не удалось загрузить историю сообщений';
+        }
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadMoreHistory() async {
+    if (_isLoading || _isLoadingMore || !_hasMore) return;
+
+    setState(() => _isLoadingMore = true);
+
+    final currentCount = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId)
+        .value
+        .length;
+    final offsetToUse = _historyOffset > currentCount ? _historyOffset : currentCount;
+
+    final res = await _messagesHandler.getHistory(
+      peerId: widget.conversation.peerId,
+      offset: offsetToUse,
+      count: 40,
+    );
+
+    if (!mounted) return;
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      setState(() {
+        _historyOffset = offsetToUse + data.items.length;
+        _hasMore = _historyOffset < data.count && data.items.isNotEmpty;
+        _isLoadingMore = false;
+      });
+    } else {
+      setState(() => _isLoadingMore = false);
+    }
+  }
+
+  Future<void> _loadNewerHistory() async {
+    if (_isLoading || _isLoadingNewer || _isAtLatest) return;
+
+    setState(() => _isLoadingNewer = true);
+
+    final currentIds = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId)
+        .value;
+    if (currentIds.isEmpty) {
+      setState(() => _isLoadingNewer = false);
+      return;
+    }
+
+    final newestId = currentIds.first;
+
+    final res = await _messagesHandler.getHistory(
+      peerId: widget.conversation.peerId,
+      startMessageId: newestId,
+      offset: -40,
+      count: 40,
+    );
+
+    if (!mounted) return;
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      widget.client.messengerStore.setHistory(
+        widget.conversation.peerId,
+        data,
+        merge: true,
+      );
+
+      final lastChatMsgId = widget.conversation.lastMessage.id;
+      final reachedLatest = data.items.isEmpty ||
+          data.items.length < 40 ||
+          data.items.any((m) => m.id >= lastChatMsgId);
+
+      setState(() {
+        _isLoadingNewer = false;
+        if (reachedLatest) {
+          _isAtLatest = true;
+        }
+      });
+    } else {
+      setState(() => _isLoadingNewer = false);
+    }
+  }
+
+  Future<void> _jumpToMessage(int targetId) async {
+    final orderNotifier = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId);
+    var messageIds = orderNotifier.value;
+
+    if (!messageIds.contains(targetId)) {
+      setState(() => _isLoadingMore = true);
+      final res = await _messagesHandler.getHistory(
+        peerId: widget.conversation.peerId,
+        startMessageId: targetId,
+        offset: -20,
+        count: 40,
+      );
+
+      if (!mounted) return;
+      setState(() => _isLoadingMore = false);
+
+      if (res.isSuccess && res.dataOrNull != null) {
+        final data = res.dataOrNull!;
+        widget.client.messengerStore.setHistory(
+          widget.conversation.peerId,
+          data,
+          merge: true,
+        );
+
+        final lastChatMsgId = widget.conversation.lastMessage.id;
+        final reachedLatest = data.items.any((m) => m.id >= lastChatMsgId);
+        setState(() {
+          _isAtLatest = reachedLatest;
+        });
+      } else {
+        return;
+      }
+      messageIds = orderNotifier.value;
+    }
+
+    final targetIndex = messageIds.indexOf(targetId);
+    if (targetIndex == -1) return;
+
+    setState(() {
+      _highlightedMessageId = targetId;
+    });
+
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (mounted && _highlightedMessageId == targetId) {
+        setState(() {
+          _highlightedMessageId = null;
+        });
+      }
+    });
+
+    // 1. If target widget is already mounted in viewport, smoothly center it
+    final existingContext = _messageKeys[targetId]?.currentContext;
+    if (existingContext != null && existingContext.mounted) {
+      await Scrollable.ensureVisible(
+        existingContext,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
+    // 2. If not currently mounted, jump near the item taking viewportDimension into account
+    // In reverse ListView: 0 is bottom, scrolling up moves pixels towards maxScrollExtent.
+    // The center of the viewport is at `scrollOffset + viewportDimension / 2`.
+    // Target item is approximately at distance `targetIndex * 70.0`.
+    if (_scrollController.hasClients) {
+      final viewportDim = _scrollController.position.viewportDimension;
+      final estimatedOffset = (targetIndex * 70.0 - viewportDim / 2).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      );
+      _scrollController.jumpTo(estimatedOffset);
+
+      // Wait for layout to build items around the jumped offset
+      await WidgetsBinding.instance.endOfFrame;
+    }
+
+    if (!mounted) return;
+
+    // 3. Now the target widget is mounted in the viewport; precisely center it
+    final newContext = _messageKeys[targetId]?.currentContext;
+    if (newContext != null && newContext.mounted) {
+      await Scrollable.ensureVisible(
+        newContext,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+      );
+    }
+  }
+
+  Future<void> _jumpToLatest() async {
+    if (_isAtLatest) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          0,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    } else {
+      await _loadHistory(refresh: true);
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+      setState(() {
+        _isAtLatest = true;
       });
     }
   }
@@ -179,7 +433,26 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         child: Column(
           children: [
             Expanded(
-              child: _buildMessagesList(),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _buildMessagesList(),
+                  ),
+                  if (_showScrollToBottom)
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: FloatingActionButton.small(
+                        heroTag: 'chat_scroll_bottom',
+                        onPressed: _jumpToLatest,
+                        backgroundColor: Colors.white,
+                        foregroundColor: RetroTheme.vkBlue,
+                        elevation: 3,
+                        child: const Icon(Icons.keyboard_arrow_down, size: 24),
+                      ),
+                    ),
+                ],
+              ),
             ),
             _buildInputBar(),
           ],
@@ -253,43 +526,110 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           );
         }
 
-        return RefreshIndicator(
-          onRefresh: () => _loadHistory(refresh: true),
-          color: RetroTheme.vkBlue,
-          child: ListView.builder(
-            controller: _scrollController,
-            reverse: true,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-            itemCount: messageIds.length,
-            itemBuilder: (context, index) {
-              final msgId = messageIds[index];
-              final msgNotifier =
-                  widget.client.messengerStore.getMessageNotifier(msgId);
-              if (msgNotifier == null) return const SizedBox.shrink();
+        final showBottomLoader = _isLoadingNewer;
+        final showTopLoader = _isLoadingMore;
+        final totalCount = messageIds.length +
+            (showBottomLoader ? 1 : 0) +
+            (showTopLoader ? 1 : 0);
 
-              return RepaintBoundary(
-                key: ValueKey(msgId),
-                child: ValueListenableBuilder<Message>(
-                  valueListenable: msgNotifier,
-                  builder: (context, message, _) {
-                    return ValueListenableBuilder<int>(
-                      valueListenable: widget.client.userCache.revision,
-                      builder: (context, _, __) {
-                        return _buildMessageBubble(message);
-                      },
-                    );
-                  },
+        return ListView.builder(
+          controller: _scrollController,
+          reverse: true,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          itemCount: totalCount,
+          itemBuilder: (context, index) {
+            // Index 0 in reverse ListView is at the bottom of the scroll
+            if (showBottomLoader && index == 0) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 10),
+                child: Center(
+                  child: RetroLoadingIndicator(size: 20),
                 ),
               );
-            },
-          ),
+            }
+
+            // Top of the chat (older messages)
+            if (showTopLoader && index == totalCount - 1) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 14),
+                child: Center(
+                  child: RetroLoadingIndicator(size: 20),
+                ),
+              );
+            }
+
+            final actualIndex = showBottomLoader ? index - 1 : index;
+            final msgId = messageIds[actualIndex];
+            final msgNotifier =
+                widget.client.messengerStore.getMessageNotifier(msgId);
+            if (msgNotifier == null) return const SizedBox.shrink();
+
+            final prevMsgId = actualIndex + 1 < messageIds.length
+                ? messageIds[actualIndex + 1]
+                : null;
+            final nextMsgId =
+                actualIndex - 1 >= 0 ? messageIds[actualIndex - 1] : null;
+
+            final prevMsg = prevMsgId != null
+                ? widget.client.messengerStore.getMessage(prevMsgId)
+                : null;
+            final nextMsg = nextMsgId != null
+                ? widget.client.messengerStore.getMessage(nextMsgId)
+                : null;
+
+            return RepaintBoundary(
+              key: _getKeyForMessage(msgId),
+              child: ValueListenableBuilder<Message>(
+                valueListenable: msgNotifier,
+                builder: (context, message, _) {
+                  final isFirstInGroup = prevMsg == null ||
+                      prevMsg.fromId != message.fromId ||
+                      prevMsg.isOut != message.isOut ||
+                      prevMsg.isSticker ||
+                      (message.date - prevMsg.date).abs() > 300;
+
+                  final isLastInGroup = nextMsg == null ||
+                      nextMsg.fromId != message.fromId ||
+                      nextMsg.isOut != message.isOut ||
+                      nextMsg.isSticker ||
+                      (nextMsg.date - message.date).abs() > 300;
+
+                  return ValueListenableBuilder<int>(
+                    valueListenable: widget.client.userCache.revision,
+                    builder: (context, _, child) {
+                      return _buildMessageBubble(
+                        message,
+                        isFirstInGroup: isFirstInGroup,
+                        isLastInGroup: isLastInGroup,
+                      );
+                    },
+                  );
+                },
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  Widget _buildMessageBubble(Message message) {
+  Widget _buildMessageBubble(
+    Message message, {
+    bool isFirstInGroup = true,
+    bool isLastInGroup = true,
+  }) {
     final isOut = message.isOut || message.fromId == widget.currentUserId;
+    final isHighlighted = _highlightedMessageId == message.id;
+
+    if (message.isSticker) {
+      return _buildStickerMessage(
+        message,
+        isOut,
+        isFirstInGroup: isFirstInGroup,
+        isLastInGroup: isLastInGroup,
+      );
+    }
+
     final cache = widget.client.userCache;
     final sender = cache.getUser(message.fromId);
     if (sender == null && message.fromId > 0) {
@@ -306,18 +646,24 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                 : 'Собеседник'));
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: EdgeInsets.only(
+        top: isFirstInGroup ? 4 : 1.5,
+        bottom: isLastInGroup ? 4 : 1.5,
+      ),
       child: Row(
         mainAxisAlignment:
             isOut ? MainAxisAlignment.end : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           if (!isOut) ...[
-            RetroChatAvatar(
-              avatarUrl: sender?.avatarUrl,
-              fallbackText: sender?.firstName ?? '?',
-              size: 32,
-            ),
+            if (isLastInGroup)
+              RetroChatAvatar(
+                avatarUrl: sender?.avatarUrl,
+                fallbackText: sender?.firstName ?? '?',
+                size: 32,
+              )
+            else
+              const SizedBox(width: 32),
             const SizedBox(width: 8),
           ],
           Flexible(
@@ -325,24 +671,35 @@ class _ChatConversationViewState extends State<ChatConversationView> {
               constraints: const BoxConstraints(maxWidth: 420),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: isOut ? RetroTheme.msgOutBubble : RetroTheme.msgInBubble,
+                color: isHighlighted
+                    ? (isOut ? const Color(0xFFD8E7FA) : const Color(0xFFE8F1FC))
+                    : (isOut ? RetroTheme.msgOutBubble : RetroTheme.msgInBubble),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
-                  color: isOut ? RetroTheme.msgOutBorder : RetroTheme.msgInBorder,
-                  width: 1,
+                  color: isHighlighted
+                      ? RetroTheme.vkBlue
+                      : (isOut ? RetroTheme.msgOutBorder : RetroTheme.msgInBorder),
+                  width: isHighlighted ? 1.5 : 1,
                 ),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x10000000),
-                    offset: Offset(0, 1),
-                    blurRadius: 2,
-                  ),
+                boxShadow: [
+                  if (isHighlighted)
+                    BoxShadow(
+                      color: RetroTheme.vkBlue.withValues(alpha: 0.35),
+                      blurRadius: 8,
+                      spreadRadius: 1,
+                    )
+                  else
+                    const BoxShadow(
+                      color: Color(0x10000000),
+                      offset: Offset(0, 1),
+                      blurRadius: 2,
+                    ),
                 ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!isOut && widget.conversation.isChat)
+                  if (!isOut && widget.conversation.isChat && isFirstInGroup)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 3),
                       child: Text(
@@ -354,6 +711,9 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                         ),
                       ),
                     ),
+                  if (message.replyMessage != null ||
+                      message.replyMessageId != null)
+                    _buildReplyQuote(message, isOut),
                   if (message.text.isNotEmpty)
                     Text(
                       message.text,
@@ -363,17 +723,14 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                       ),
                     ),
                   if (message.attachments.isNotEmpty)
-                    ...message.attachments.map((att) => Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            att.summaryText,
-                            style: const TextStyle(
-                              color: RetroTheme.textSecondary,
-                              fontStyle: FontStyle.italic,
-                              fontSize: 13,
-                            ),
-                          ),
-                        )),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: RetroAttachmentGrid(
+                        attachments: message.attachments,
+                        isOut: isOut,
+                        maxWidth: 380,
+                      ),
+                    ),
                   const SizedBox(height: 3),
                   Align(
                     alignment: Alignment.bottomRight,
@@ -391,6 +748,238 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           ),
           if (isOut) const SizedBox(width: 4),
         ],
+      ),
+    );
+  }
+
+  Widget _buildReplyQuote(Message message, bool isOut) {
+    final replyId = message.replyMessage?.id ?? message.replyMessageId;
+    if (replyId == null) return const SizedBox.shrink();
+
+    final reply = message.replyMessage;
+    final cache = widget.client.userCache;
+
+    String authorName = 'Ответ';
+    String preview = 'Загрузка...';
+
+    if (reply != null) {
+      if (reply.fromId == widget.currentUserId) {
+        authorName = 'Вы';
+      } else if (reply.fromId > 0) {
+        final user = cache.getUser(reply.fromId);
+        authorName = user?.fullName ?? cache.getSenderName(reply.fromId);
+        if (authorName.isEmpty) authorName = 'Пользователь';
+      } else if (reply.fromId < 0) {
+        final group = cache.getGroup(reply.fromId.abs());
+        authorName = group?.name ?? 'Сообщество';
+      }
+      preview = reply.previewText;
+    } else {
+      authorName = 'Сообщение #$replyId';
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () => _jumpToMessage(replyId),
+          borderRadius: BorderRadius.circular(4),
+          child: Container(
+            decoration: BoxDecoration(
+              color: isOut ? const Color(0x14000000) : const Color(0x0C000000),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: IntrinsicHeight(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 3,
+                    decoration: BoxDecoration(
+                      color: RetroTheme.vkBlue,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Flexible(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            authorName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: RetroTheme.textLink,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            preview,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: RetroTheme.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStickerMessage(
+    Message message,
+    bool isOut, {
+    bool isFirstInGroup = true,
+    bool isLastInGroup = true,
+  }) {
+    final sticker = message.stickerAttachment;
+    final stickerUrl = sticker?.bestImage ?? '';
+
+    final cache = widget.client.userCache;
+    final sender = cache.getUser(message.fromId);
+    if (sender == null && message.fromId > 0) {
+      cache.requestUser(message.fromId);
+    } else if (sender == null && message.fromId < 0) {
+      cache.requestGroup(message.fromId.abs());
+    }
+
+    return Padding(
+      padding: EdgeInsets.only(
+        top: isFirstInGroup ? 4 : 1.5,
+        bottom: isLastInGroup ? 4 : 1.5,
+      ),
+      child: Row(
+        mainAxisAlignment:
+            isOut ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (!isOut) ...[
+            if (isLastInGroup)
+              RetroChatAvatar(
+                avatarUrl: sender?.avatarUrl,
+                fallbackText: sender?.firstName ?? '?',
+                size: 32,
+              )
+            else
+              const SizedBox(width: 32),
+            const SizedBox(width: 8),
+          ],
+          Column(
+            crossAxisAlignment:
+                isOut ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              if (message.replyMessage != null ||
+                  message.replyMessageId != null)
+                _buildReplyQuote(message, isOut),
+              Stack(
+            children: [
+              SizedBox(
+                width: 160,
+                height: 160,
+                child: stickerUrl.isNotEmpty
+                    ? Image.network(
+                        stickerUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) =>
+                            _buildStickerFallback(sticker?.stickerId ?? 0),
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return const Center(
+                            child: RetroLoadingIndicator(size: 20),
+                          );
+                        },
+                      )
+                    : _buildStickerFallback(sticker?.stickerId ?? 0),
+              ),
+              Positioned(
+                bottom: 4,
+                right: 4,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0x66000000),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _formatTime(message.date),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      if (isOut) ...[
+                        const SizedBox(width: 3),
+                        Icon(
+                          message.isUnread ? Icons.done : Icons.done_all,
+                          size: 11,
+                          color: Colors.white,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+            ],
+          ),
+          if (isOut) const SizedBox(width: 4),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStickerFallback(int stickerId) {
+    return Container(
+      width: 150,
+      height: 150,
+      decoration: BoxDecoration(
+        color: const Color(0x0C000000),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0x18000000)),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.sentiment_satisfied_alt_rounded,
+              size: 44,
+              color: Color(0xFF8B98A7),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              stickerId > 0 ? 'Стикер #$stickerId' : 'Стикер',
+              style: const TextStyle(
+                color: Color(0xFF8B98A7),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -95,6 +95,19 @@ class CacheService {
     }
   }
 
+  Future<void> invalidateMessagesCache(String instanceId) async {
+    if (!_dbManager.isInitialized) return;
+    try {
+      await _db.delete(
+        'cache_entries',
+        where: "instance_id = ? AND (tag = 'messages_conversations' OR tag LIKE 'history_%')",
+        whereArgs: [instanceId],
+      );
+    } catch (e) {
+      debugPrint('[CacheService] Ошибка очистки устаревшего кэша сообщений: $e');
+    }
+  }
+
   Future<void> invalidateByTag({
     required String tag,
     required String instanceId,

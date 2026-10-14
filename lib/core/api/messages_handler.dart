@@ -3,7 +3,10 @@ import 'dart:math';
 
 import '../cache/cache_policy.dart';
 import '../models/conversations_response.dart';
+import '../models/group.dart';
 import '../models/history_response.dart';
+import '../models/message.dart';
+import '../models/user.dart';
 import '../utils/json_safe.dart';
 import 'api_response.dart';
 import 'openvk_client.dart';
@@ -18,9 +21,9 @@ class MessagesHandler {
     int count = 30,
     String filter = 'all',
     bool extended = true,
-    CachePolicy cachePolicy = CachePolicy.networkFirst,
+    CachePolicy cachePolicy = CachePolicy.networkOnly,
   }) async {
-    final res = await _client.callCached<ConversationsResponse>(
+    final res = await _client.call<ConversationsResponse>(
       'messages.getConversations',
       params: {
         'v': '5.86',
@@ -30,9 +33,6 @@ class MessagesHandler {
         'extended': extended ? 1 : 0,
         'fields': 'photo_50,photo_100,online',
       },
-      cachePolicy: cachePolicy,
-      cacheTag: 'messages_conversations',
-      cacheKey: 'conversations_${filter}_offset_${offset}_count_$count',
       parser: (json) => ConversationsResponse.fromJson(JsonSafe.toMap(json)),
       fallback: () => ConversationsResponse.empty(),
     );
@@ -55,7 +55,7 @@ class MessagesHandler {
     int count = 40,
     int? startMessageId,
     bool extended = true,
-    CachePolicy cachePolicy = CachePolicy.networkFirst,
+    CachePolicy cachePolicy = CachePolicy.networkOnly,
   }) async {
     final params = <String, dynamic>{
       'v': '5.86',
@@ -67,12 +67,9 @@ class MessagesHandler {
       'start_message_id': ?startMessageId,
     };
 
-    final res = await _client.callCached<HistoryResponse>(
+    final res = await _client.call<HistoryResponse>(
       'messages.getHistory',
       params: params,
-      cachePolicy: cachePolicy,
-      cacheTag: 'history_$peerId',
-      cacheKey: 'history_${peerId}_offset_$offset',
       parser: (json) => HistoryResponse.fromJson(JsonSafe.toMap(json)),
       fallback: () => HistoryResponse.empty(),
     );
@@ -101,6 +98,65 @@ class MessagesHandler {
         'fields': fields,
       },
       parser: (json) => JsonSafe.toMap(json),
+    );
+  }
+
+  Future<ApiResponse<List<Message>>> getById(
+    List<int> messageIds, {
+    bool extended = true,
+  }) async {
+    final res = await _client.call<Map<String, dynamic>>(
+      'messages.getById',
+      params: {
+        'v': '5.86',
+        'message_ids': messageIds.join(','),
+        'extended': extended ? 1 : 0,
+        'fields': 'photo_50,photo_100,online',
+      },
+      parser: (json) {
+        if (json is Map) return Map<String, dynamic>.from(json);
+        if (json is List) return {'items': json};
+        return {};
+      },
+      fallback: () => const {},
+    );
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      final rawItems = data['items'] ?? data;
+      final messages = JsonSafe.toList(
+        rawItems,
+        (m) => Message.fromJson(JsonSafe.toMap(m)),
+      );
+
+      if (data['profiles'] != null) {
+        final users = JsonSafe.toList(
+          data['profiles'],
+          (u) => User.fromJson(JsonSafe.toMap(u)),
+        );
+        _client.userCache.putUsers(users);
+      }
+      if (data['groups'] != null) {
+        final groups = JsonSafe.toList(
+          data['groups'],
+          (g) => Group.fromJson(JsonSafe.toMap(g)),
+        );
+        _client.userCache.putGroups(groups);
+      }
+
+      for (final msg in messages) {
+        _client.messengerStore.putMessage(msg);
+      }
+
+      return ApiSuccess<List<Message>>(messages);
+    }
+
+    return ApiFailure<List<Message>>(
+      res.errorOrNull ??
+          const ApiError(
+            kind: ApiErrorKind.unknown,
+            message: 'Unknown error',
+          ),
     );
   }
 

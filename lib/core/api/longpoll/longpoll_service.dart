@@ -54,13 +54,15 @@ class LongPollService {
     http.Client? httpClient,
   }) : _httpClient = httpClient ?? http.Client();
 
-  /// Starts LongPoll only if there are cached chats/messages in SQLite.
-  /// If the cache is empty, it stays idle until the first chats are loaded.
+  /// Starts LongPoll if there are active chats in runtime store or cached in database.
+  /// If neither is present, it stays idle until the first chats are loaded.
   Future<void> checkAndStart() async {
     if (_isRunning) return;
     if (client.accessToken == null || client.accessToken!.isEmpty) return;
 
-    final hasCache = await client.cacheService.hasAnyCachedMessagesOrConversations(client.instanceId);
+    final hasRuntimeChats = store.hasAnyConversations;
+    final hasCache = hasRuntimeChats ||
+        await client.cacheService.hasAnyCachedMessagesOrConversations(client.instanceId);
     if (hasCache) {
       start();
     } else {

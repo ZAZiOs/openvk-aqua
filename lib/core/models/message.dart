@@ -13,6 +13,7 @@ class Message {
   final List<Attachment> attachments;
   final List<Message> fwdMessages;
   final Message? replyMessage;
+  final int? replyMessageId;
   final MessageAction? action;
   final int conversationMessageId;
   final int updateTime;
@@ -29,6 +30,7 @@ class Message {
     required this.attachments,
     required this.fwdMessages,
     this.replyMessage,
+    this.replyMessageId,
     this.action,
     required this.conversationMessageId,
     required this.updateTime,
@@ -43,10 +45,19 @@ class Message {
     return '$hour:$minute';
   }
 
+  bool get isSticker =>
+      attachments.isNotEmpty &&
+      attachments.first.type == 'sticker' &&
+      text.isEmpty;
+
+  StickerAttachment? get stickerAttachment =>
+      attachments.where((a) => a.type == 'sticker').firstOrNull?.sticker;
+
   String get previewText {
     if (text.isNotEmpty) return text;
     if (attachments.isNotEmpty) return attachments.first.summaryText;
     if (fwdMessages.isNotEmpty) return '[Пересланные сообщения]';
+    if (replyMessage != null || replyMessageId != null) return '[Ответ]';
     if (action != null) return action!.description;
     return '...';
   }
@@ -63,6 +74,7 @@ class Message {
     List<Attachment>? attachments,
     List<Message>? fwdMessages,
     Message? replyMessage,
+    int? replyMessageId,
     MessageAction? action,
     int? conversationMessageId,
     int? updateTime,
@@ -79,6 +91,7 @@ class Message {
       attachments: attachments ?? this.attachments,
       fwdMessages: fwdMessages ?? this.fwdMessages,
       replyMessage: replyMessage ?? this.replyMessage,
+      replyMessageId: replyMessageId ?? this.replyMessageId,
       action: action ?? this.action,
       conversationMessageId:
           conversationMessageId ?? this.conversationMessageId,
@@ -87,6 +100,18 @@ class Message {
   }
 
   factory Message.fromJson(Map<String, dynamic> json) {
+    final parsedReplyMsg = json['reply_message'] != null
+        ? Message.fromJson(JsonSafe.toMap(json['reply_message']))
+        : null;
+    final parsedReplyId = parsedReplyMsg?.id ??
+        (json['reply_to'] != null
+            ? int.tryParse(json['reply_to'].toString())
+            : (json['reply'] != null
+                ? int.tryParse(json['reply'].toString())
+                : (json['reply_message_id'] != null
+                    ? int.tryParse(json['reply_message_id'].toString())
+                    : null)));
+
     return Message(
       id: JsonSafe.toInt(json['id']),
       date: JsonSafe.toInt(json['date']),
@@ -105,9 +130,8 @@ class Message {
         json['fwd_messages'],
         (f) => Message.fromJson(JsonSafe.toMap(f)),
       ),
-      replyMessage: json['reply_message'] != null
-          ? Message.fromJson(JsonSafe.toMap(json['reply_message']))
-          : null,
+      replyMessage: parsedReplyMsg,
+      replyMessageId: parsedReplyId,
       action: json['action'] != null
           ? MessageAction.fromJson(JsonSafe.toMap(json['action']))
           : null,
@@ -127,6 +151,8 @@ class Message {
     isUnread: false,
     attachments: [],
     fwdMessages: [],
+    replyMessage: null,
+    replyMessageId: null,
     conversationMessageId: 0,
     updateTime: 0,
   );
