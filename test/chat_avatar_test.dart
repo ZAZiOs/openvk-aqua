@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/core.dart';
-import 'package:openvk_flutter/ui/widgets/retro_chat_avatar.dart';
+import 'package:openvk_aqua/core/core.dart';
+import 'package:openvk_aqua/ui/widgets/retro_chat_avatar.dart';
 
 void main() {
   group('RetroChatAvatar Widget Tests', () {

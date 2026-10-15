@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/cache/user_cache.dart';
-import 'package:openvk_flutter/core/models/conversation.dart';
-import 'package:openvk_flutter/core/models/group.dart';
-import 'package:openvk_flutter/core/models/message.dart';
-import 'package:openvk_flutter/core/models/user.dart';
-import 'package:openvk_flutter/core/store/messenger_store.dart';
+import 'package:openvk_aqua/core/cache/user_cache.dart';
+import 'package:openvk_aqua/core/models/conversation.dart';
+import 'package:openvk_aqua/core/models/group.dart';
+import 'package:openvk_aqua/core/models/message.dart';
+import 'package:openvk_aqua/core/models/user.dart';
+import 'package:openvk_aqua/core/store/messenger_store.dart';
 
 void main() {
   group('UserCache Tests', () {

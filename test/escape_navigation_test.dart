@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/api/auth_handler.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/models/conversation.dart';
-import 'package:openvk_flutter/core/models/message.dart';
-import 'package:openvk_flutter/main.dart';
-import 'package:openvk_flutter/ui/views/messages/chat_conversation_view.dart';
+import 'package:openvk_aqua/core/api/auth_handler.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/models/conversation.dart';
+import 'package:openvk_aqua/core/models/message.dart';
+import 'package:openvk_aqua/main.dart';
+import 'package:openvk_aqua/ui/views/messages/chat_conversation_view.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

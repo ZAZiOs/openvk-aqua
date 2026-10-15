@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/core.dart';
-import 'package:openvk_flutter/main.dart';
-import 'package:openvk_flutter/ui/views/settings/settings_view.dart';
-import 'package:openvk_flutter/ui/widgets/retro_app_bar.dart';
-import 'package:openvk_flutter/ui/widgets/retro_bottom_bar.dart';
+import 'package:openvk_aqua/core/core.dart';
+import 'package:openvk_aqua/main.dart';
+import 'package:openvk_aqua/ui/views/settings/settings_view.dart';
+import 'package:openvk_aqua/ui/widgets/retro_app_bar.dart';
+import 'package:openvk_aqua/ui/widgets/retro_bottom_bar.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

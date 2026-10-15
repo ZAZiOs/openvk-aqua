@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/api/auth_handler.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/models/post.dart';
-import 'package:openvk_flutter/core/models/user.dart';
-import 'package:openvk_flutter/core/models/wall_response.dart';
-import 'package:openvk_flutter/ui/views/wall/wall_view.dart';
-import 'package:openvk_flutter/ui/views/wall/widgets/dotted_leader_row.dart';
-import 'package:openvk_flutter/ui/views/wall/widgets/wall_counters_grid.dart';
-import 'package:openvk_flutter/ui/views/wall/widgets/wall_post_card.dart';
+import 'package:openvk_aqua/core/api/auth_handler.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/models/post.dart';
+import 'package:openvk_aqua/core/models/user.dart';
+import 'package:openvk_aqua/core/models/wall_response.dart';
+import 'package:openvk_aqua/ui/views/wall/wall_view.dart';
+import 'package:openvk_aqua/ui/views/wall/widgets/dotted_leader_row.dart';
+import 'package:openvk_aqua/ui/views/wall/widgets/wall_counters_grid.dart';
+import 'package:openvk_aqua/ui/views/wall/widgets/wall_post_card.dart';
 
 void main() {
   group('Wall & Post Models Tests', () {

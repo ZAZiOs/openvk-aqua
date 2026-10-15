@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/api/auth_handler.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/cache/user_cache.dart';
-import 'package:openvk_flutter/core/models/conversation.dart';
-import 'package:openvk_flutter/core/models/history_response.dart';
-import 'package:openvk_flutter/core/models/message.dart';
-import 'package:openvk_flutter/core/models/user.dart';
-import 'package:openvk_flutter/core/store/messenger_store.dart';
-import 'package:openvk_flutter/ui/views/messages/chat_conversation_view.dart';
+import 'package:openvk_aqua/core/api/auth_handler.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/cache/user_cache.dart';
+import 'package:openvk_aqua/core/models/conversation.dart';
+import 'package:openvk_aqua/core/models/history_response.dart';
+import 'package:openvk_aqua/core/models/message.dart';
+import 'package:openvk_aqua/core/models/user.dart';
+import 'package:openvk_aqua/core/store/messenger_store.dart';
+import 'package:openvk_aqua/ui/views/messages/chat_conversation_view.dart';
 
 void main() {
   group('Reply Message and getById Store integration', () {

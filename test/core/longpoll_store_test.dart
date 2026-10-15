@@ -4,16 +4,16 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:openvk_flutter/core/api/longpoll/longpoll_service.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/cache/cache_service.dart';
-import 'package:openvk_flutter/core/db/app_database.dart';
-import 'package:openvk_flutter/core/models/conversation.dart';
-import 'package:openvk_flutter/core/models/conversations_response.dart';
-import 'package:openvk_flutter/core/models/history_response.dart';
-import 'package:openvk_flutter/core/models/message.dart';
-import 'package:openvk_flutter/core/models/user.dart';
-import 'package:openvk_flutter/core/store/messenger_store.dart';
+import 'package:openvk_aqua/core/api/longpoll/longpoll_service.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/cache/cache_service.dart';
+import 'package:openvk_aqua/core/db/app_database.dart';
+import 'package:openvk_aqua/core/models/conversation.dart';
+import 'package:openvk_aqua/core/models/conversations_response.dart';
+import 'package:openvk_aqua/core/models/history_response.dart';
+import 'package:openvk_aqua/core/models/message.dart';
+import 'package:openvk_aqua/core/models/user.dart';
+import 'package:openvk_aqua/core/store/messenger_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

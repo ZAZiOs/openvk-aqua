@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/models/attachment.dart';
-import 'package:openvk_flutter/ui/widgets/retro_attachment_grid.dart';
-import 'package:openvk_flutter/ui/widgets/retro_media_viewer.dart';
+import 'package:openvk_aqua/core/models/attachment.dart';
+import 'package:openvk_aqua/ui/widgets/retro_attachment_grid.dart';
+import 'package:openvk_aqua/ui/widgets/retro_media_viewer.dart';
 
 void main() {
   final testPhotos = [

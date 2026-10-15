@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/core.dart';
-import 'package:openvk_flutter/ui/views/messages/chat_conversation_view.dart';
+import 'package:openvk_aqua/core/core.dart';
+import 'package:openvk_aqua/ui/views/messages/chat_conversation_view.dart';
 
 void main() {
   group('Sticker Message Tests', () {

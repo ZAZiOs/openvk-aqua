@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/cache/cache_policy.dart';
-import 'package:openvk_flutter/core/cache/cache_service.dart';
-import 'package:openvk_flutter/core/db/app_database.dart';
-import 'package:openvk_flutter/core/utils/json_safe.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/cache/cache_policy.dart';
+import 'package:openvk_aqua/core/cache/cache_service.dart';
+import 'package:openvk_aqua/core/db/app_database.dart';
+import 'package:openvk_aqua/core/utils/json_safe.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/models/attachment.dart';
+import 'package:openvk_aqua/core/models/attachment.dart';
 
 void main() {
   group('VideoAttachment.fromJson thumbnail parsing tests', () {

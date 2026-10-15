@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "openvk_flutter" "\0"
+            VALUE "CompanyName", "oss.zazios" "\0"
+            VALUE "FileDescription", "openvk_aqua" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "openvk_flutter" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "openvk_flutter.exe" "\0"
-            VALUE "ProductName", "openvk_flutter" "\0"
+            VALUE "InternalName", "openvk_aqua" "\0"
+            VALUE "LegalCopyright", "Open Source Software by ZAZiOs." "\0"
+            VALUE "OriginalFilename", "openvk_aqua.exe" "\0"
+            VALUE "ProductName", "openvk_aqua" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:openvk_flutter/core/api/api_response.dart';
-import 'package:openvk_flutter/core/api/openvk_client.dart';
-import 'package:openvk_flutter/core/utils/json_safe.dart';
+import 'package:openvk_aqua/core/api/api_response.dart';
+import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/utils/json_safe.dart';
 
 void main() {
   group('OpenVkClient', () {

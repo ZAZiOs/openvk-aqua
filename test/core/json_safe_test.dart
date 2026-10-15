@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:openvk_flutter/core/utils/json_safe.dart';
+import 'package:openvk_aqua/core/utils/json_safe.dart';
 
 void main() {
   group('JsonSafe', () {
