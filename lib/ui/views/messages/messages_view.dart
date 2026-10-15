@@ -367,12 +367,6 @@ class _MessagesViewState extends State<MessagesView> {
           child: const Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.forum_outlined,
-                size: 54,
-                color: Color(0xFF8B98A7),
-              ),
-              SizedBox(height: 14),
               Text(
                 'Выберите диалог',
                 style: TextStyle(
@@ -667,7 +661,7 @@ class _MessagesViewState extends State<MessagesView> {
   }
 
   void _openUserProfile(int userId) {
-    if (userId <= 0) return;
+    if (userId == 0) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => WallView(

@@ -66,11 +66,15 @@ class _WallViewState extends State<WallView>
   bool _isSendingPost = false;
   int? _friendStatus; // 0: not friend, 1: request sent, 2: incoming request, 3: friends
   bool _isFriendActionLoading = false;
+  bool? _isGroupMember;
+  bool _isGroupActionLoading = false;
 
   int get _targetId => widget.ownerId ?? widget.account.userId;
   bool get _isMyWall => _targetId == widget.account.userId;
+  bool get _isGroupWall => _targetId < 0 || (_user?.isGroup == true);
 
   bool _hasProfileData(User u) {
+    if (u.isGroup || u.id < 0) return true;
     return u.counters.friends > 0 ||
         u.counters.followers > 0 ||
         u.counters.groups > 0 ||
@@ -105,11 +109,16 @@ class _WallViewState extends State<WallView>
       if (cached.friendStatus != null) {
         _friendStatus = cached.friendStatus;
       }
+      if (cached.isGroup) {
+        _isGroupMember = cached.isMember;
+      }
     }
 
     _loadUserProfile();
     _loadPosts(refresh: true);
-    if (!_isMyWall && _targetId > 0) {
+    if (_targetId < 0) {
+      _checkGroupMembership();
+    } else if (!_isMyWall && _targetId > 0) {
       _checkFriendStatus();
     }
   }
@@ -143,8 +152,13 @@ class _WallViewState extends State<WallView>
         if (_user?.friendStatus != null) {
           _friendStatus = _user!.friendStatus;
         }
+        if (_user?.isGroup == true) {
+          _isGroupMember = _user!.isMember;
+        }
       });
-      if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
+      if (_isGroupWall) {
+        if (_isGroupMember == null) _checkGroupMembership();
+      } else if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
         _checkFriendStatus();
       }
       // If profile was loaded from cache, silently fetch fresh data from network in background
@@ -156,8 +170,13 @@ class _WallViewState extends State<WallView>
               if (_user?.friendStatus != null) {
                 _friendStatus = _user!.friendStatus;
               }
+              if (_user?.isGroup == true) {
+                _isGroupMember = _user!.isMember;
+              }
             });
-            if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
+            if (_isGroupWall) {
+              if (_isGroupMember == null) _checkGroupMembership();
+            } else if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
               _checkFriendStatus();
             }
           }
@@ -243,7 +262,10 @@ class _WallViewState extends State<WallView>
     await Future.wait([
       _loadUserProfile(forceRefresh: true),
       _loadPosts(refresh: true, forceRefresh: true),
-      if (!_isMyWall && _targetId > 0) _checkFriendStatus(),
+      if (_isGroupWall)
+        _checkGroupMembership()
+      else if (!_isMyWall && _targetId > 0)
+        _checkFriendStatus(),
     ]);
   }
 
@@ -348,6 +370,133 @@ class _WallViewState extends State<WallView>
       _posts = [];
     });
     _loadPosts(refresh: true);
+  }
+
+  Future<void> _checkGroupMembership() async {
+    if (!_isGroupWall) return;
+    try {
+      final res = await widget.client.call<dynamic>(
+        'groups.isMember',
+        params: {
+          'group_id': _targetId.abs().toString(),
+          'user_id': widget.account.userId.toString(),
+        },
+        parser: (json) => json,
+      );
+      if (!mounted) return;
+      if (res.isSuccess && res.dataOrNull != null) {
+        final val = JsonSafe.toInt(res.dataOrNull);
+        setState(() => _isGroupMember = val == 1);
+      }
+    } catch (e) {
+      debugPrint('[WallView] groups.isMember error: $e');
+    }
+  }
+
+  Future<void> _handleGroupMembershipPressed() async {
+    if (_isGroupActionLoading) return;
+
+    final isMember = _isGroupMember ?? false;
+
+    // If currently member: confirmation dialog to leave
+    if (isMember) {
+      final isPage = _user?.groupType == 'page';
+      final groupName = _user?.firstName.isNotEmpty == true ? _user!.firstName : 'сообщество';
+      final confirmed = await showIos6ConfirmDialog(
+        context: context,
+        title: isPage ? 'Отписка от страницы' : 'Выход из группы',
+        message: isPage
+            ? 'Вы действительно хотите отписаться от сообщества «$groupName»?'
+            : 'Вы действительно хотите покинуть сообщество «$groupName»?',
+        cancelText: 'Отмена',
+        confirmText: isPage ? 'Отписаться' : 'Покинуть',
+        isDestructive: true,
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      setState(() => _isGroupActionLoading = true);
+      try {
+        final res = await widget.client.call<dynamic>(
+          'groups.leave',
+          params: {'group_id': _targetId.abs().toString()},
+          parser: (json) => json,
+        );
+        if (!mounted) return;
+        if (res.isSuccess) {
+          setState(() {
+            _isGroupMember = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Вы покинули сообщество'),
+              backgroundColor: Color(0xFF2E3E50),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.errorOrNull?.message ?? 'Не удалось покинуть сообщество'),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _isGroupActionLoading = false);
+        }
+      }
+      return;
+    }
+
+    // If not member: join group
+    setState(() => _isGroupActionLoading = true);
+    try {
+      final res = await widget.client.call<dynamic>(
+        'groups.join',
+        params: {'group_id': _targetId.abs().toString()},
+        parser: (json) => json,
+      );
+      if (!mounted) return;
+      if (res.isSuccess) {
+        setState(() {
+          _isGroupMember = true;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Вы вступили в сообщество'),
+            backgroundColor: Color(0xFF2E3E50),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res.errorOrNull?.message ?? 'Не удалось вступить в сообщество'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка: $e'),
+          backgroundColor: Colors.red.shade800,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isGroupActionLoading = false);
+      }
+    }
   }
 
   Future<void> _checkFriendStatus() async {
@@ -628,7 +777,7 @@ class _WallViewState extends State<WallView>
   }
 
   void _openUserProfile(int userId) {
-    if (userId <= 0) return;
+    if (userId == 0) return;
     if (userId == _targetId) return;
 
     Navigator.of(context).push(
@@ -650,9 +799,9 @@ class _WallViewState extends State<WallView>
       return Scaffold(
         backgroundColor: const Color(0xFF243242),
         appBar: canPop
-            ? const RetroAppBar(
+            ? RetroAppBar(
                 showBackButton: true,
-                title: 'Страница пользователя',
+                title: _isGroupWall ? 'Сообщество' : 'Страница пользователя',
               )
             : null,
         body: Center(
@@ -719,79 +868,121 @@ class _WallViewState extends State<WallView>
       );
     }
 
+    final Widget scrollContent = RetroPullToRefresh(
+      onRefresh: _handleRefresh,
+      backgroundColor: const Color(0xFF283647),
+      contentColor: const Color(0xFFCAD8E6),
+      arrowColor: const Color(0xFF8BA5BE),
+      child: CustomScrollView(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          // Dark Denim Profile Card Container
+          SliverToBoxAdapter(
+            child: _buildProfileHeaderCard(),
+          ),
+
+          // Denim "Информация" Section
+          SliverToBoxAdapter(
+            child: _buildInfoSection(_user),
+          ),
+
+          // Denim Composer Bar with Segmented Pills
+          SliverToBoxAdapter(
+            child: _buildComposerAndFilters(),
+          ),
+
+          // Posts Feed Slivers
+          if (_isLoadingPosts)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(child: RetroLoadingIndicator(size: 28)),
+              ),
+            )
+          else if (_posts.isEmpty)
+            SliverToBoxAdapter(
+              child: _buildEmptyState(),
+            )
+          else ...[
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              sliver: SliverList.builder(
+                itemCount: _posts.length,
+                itemBuilder: (context, index) {
+                  final post = _posts[index];
+                  return WallPostCard(
+                    key: ValueKey('post_${post.id}'),
+                    post: post,
+                    onLikeToggle: () => _handleToggleLike(post),
+                    onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
+                        ? () => _handleDeletePost(post)
+                        : null,
+                    onAuthorTap: _openUserProfile,
+                  );
+                },
+              ),
+            ),
+            if (_isLoadingMore)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: RetroLoadingIndicator(size: 20)),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+
     return Scaffold(
-      backgroundColor: const Color(0xFFCBD2D8),
+      backgroundColor: const Color(0xFFCAD4DF),
       appBar: canPop
           ? RetroAppBar(
               showBackButton: true,
-              title: _user!.fullName.isNotEmpty ? _user!.fullName : 'Страница пользователя',
+              title: _user!.fullName.isNotEmpty
+                  ? _user!.fullName
+                  : (_isGroupWall ? 'Сообщество' : 'Страница пользователя'),
             )
           : null,
-      body: RetroPullToRefresh(
-        onRefresh: _handleRefresh,
-        backgroundColor: const Color(0xFF283647),
-        contentColor: const Color(0xFFCAD8E6),
-        arrowColor: const Color(0xFF8BA5BE),
-        child: CustomScrollView(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            // Dark Denim Profile Card Container
-            SliverToBoxAdapter(
-              child: _buildProfileHeaderCard(),
-            ),
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          final bool isConstrained = constraints.maxWidth > 850;
 
-            // Denim "Информация" Section
-            SliverToBoxAdapter(
-              child: _buildInfoSection(_user),
-            ),
+          if (!isConstrained) {
+            return scrollContent;
+          }
 
-            // Denim Composer Bar with Segmented Pills
-            SliverToBoxAdapter(
-              child: _buildComposerAndFilters(),
-            ),
-
-            // Posts Feed Slivers
-            if (_isLoadingPosts)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40),
-                  child: Center(child: RetroLoadingIndicator(size: 28)),
-                ),
-              )
-            else if (_posts.isEmpty)
-              SliverToBoxAdapter(
-                child: _buildEmptyState(),
-              )
-            else ...[
-              SliverPadding(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                sliver: SliverList.builder(
-                  itemCount: _posts.length,
-                  itemBuilder: (context, index) {
-                    final post = _posts[index];
-                    return WallPostCard(
-                      key: ValueKey('post_${post.id}'),
-                      post: post,
-                      onLikeToggle: () => _handleToggleLike(post),
-                      onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
-                          ? () => _handleDeletePost(post)
-                          : null,
-                      onAuthorTap: _openUserProfile,
-                    );
-                  },
-                ),
-              ),
-              if (_isLoadingMore)
-                const SliverToBoxAdapter(
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: RetroLoadingIndicator(size: 20)),
+          return Container(
+            color: const Color(0xFFCAD4DF),
+            width: double.infinity,
+            height: double.infinity,
+            child: Center(
+              child: Container(
+                width: double.infinity,
+                height: double.infinity,
+                constraints: const BoxConstraints(maxWidth: 850),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFCBD2D8),
+                  border: Border.symmetric(
+                    vertical: BorderSide(
+                      color: Color(0xFFB8C5D3),
+                      width: 1,
+                    ),
                   ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x1F000000),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    ),
+                  ],
                 ),
-            ],
-          ],
-        ),
+                child: scrollContent,
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -944,50 +1135,78 @@ class _WallViewState extends State<WallView>
                       const SizedBox(height: 6),
                     ],
 
-                    // Online indicator pill
-                    Row(
-                      children: [
-                        Container(
-                          width: 9,
-                          height: 9,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: RadialGradient(
-                              colors: isOnline
-                                  ? const [Color(0xFF6DE86D), Color(0xFF299929)]
-                                  : const [Color(0xFF8B9BAE), Color(0xFF556475)],
-                            ),
-                            border: Border.all(
-                              color: isOnline ? const Color(0xFF1B6B1B) : const Color(0xFF3D4956),
-                              width: 0.8,
-                            ),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x40000000),
-                                offset: Offset(0, 1),
-                                blurRadius: 1,
-                              ),
-                            ],
+                    // Online indicator or community type pill
+                    if (_isGroupWall) ...[
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.public,
+                            size: 14,
+                            color: Color(0xFF869DB3),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isOnline ? 'Онлайн' : 'Не в сети',
-                          style: TextStyle(
-                            color: isOnline ? const Color(0xFF7EBF88) : const Color(0xFF869DB3),
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            shadows: const [
-                              Shadow(
-                                color: Colors.black,
-                                offset: Offset(0, 1),
-                                blurRadius: 1,
-                              ),
-                            ],
+                          const SizedBox(width: 5),
+                          Text(
+                            user?.groupTypeName ?? 'Сообщество',
+                            style: const TextStyle(
+                              color: Color(0xFF869DB3),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black,
+                                  offset: Offset(0, 1),
+                                  blurRadius: 1,
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ] else ...[
+                      Row(
+                        children: [
+                          Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: RadialGradient(
+                                colors: isOnline
+                                    ? const [Color(0xFF6DE86D), Color(0xFF299929)]
+                                    : const [Color(0xFF8B9BAE), Color(0xFF556475)],
+                              ),
+                              border: Border.all(
+                                color: isOnline ? const Color(0xFF1B6B1B) : const Color(0xFF3D4956),
+                                width: 0.8,
+                              ),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Color(0x40000000),
+                                  offset: Offset(0, 1),
+                                  blurRadius: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            isOnline ? 'Онлайн' : 'Не в сети',
+                            style: TextStyle(
+                              color: isOnline ? const Color(0xFF7EBF88) : const Color(0xFF869DB3),
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              shadows: const [
+                                Shadow(
+                                  color: Colors.black,
+                                  offset: Offset(0, 1),
+                                  blurRadius: 1,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -999,10 +1218,34 @@ class _WallViewState extends State<WallView>
           // 2x3 Counters Grid (with inner shadow wells!)
           WallCountersGrid(
             counters: user?.counters ?? const UserCounters(),
+            isGroup: _isGroupWall,
             onCounterTap: (key) {},
           ),
 
-          if (!_isMyWall && _targetId > 0) ...[
+          if (_isGroupWall) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _Ios6ProfileActionButton(
+                    text: _isGroupMember == true ? 'Вы подписаны' : 'Подписаться',
+                    isBlue: true,
+                    isDark: _isGroupMember == true,
+                    isLoading: _isGroupActionLoading,
+                    onPressed: _handleGroupMembershipPressed,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _Ios6ProfileActionButton(
+                    text: 'Сообщение',
+                    isBlue: false,
+                    onPressed: _openChatWithUser,
+                  ),
+                ),
+              ],
+            ),
+          ] else if (!_isMyWall && _targetId > 0) ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -1032,7 +1275,15 @@ class _WallViewState extends State<WallView>
   }
 
   Widget _buildInfoSection(User? user) {
-    final hasBasicInfo = user != null &&
+    final isGroup = _isGroupWall;
+
+    final hasGroupInfo = isGroup && user != null &&
+        (user.about.isNotEmpty ||
+            user.site.isNotEmpty ||
+            user.city.isNotEmpty ||
+            user.registrationDate.isNotEmpty);
+
+    final hasBasicInfo = !isGroup && user != null &&
         (user.pronouns.isNotEmpty ||
             user.relation.isNotEmpty ||
             user.registrationDate.isNotEmpty ||
@@ -1040,17 +1291,20 @@ class _WallViewState extends State<WallView>
             user.political.isNotEmpty ||
             user.bdate.isNotEmpty);
 
-    final hasContacts = user != null &&
+    final hasContacts = !isGroup && user != null &&
         (user.telegram.isNotEmpty ||
             user.site.isNotEmpty ||
             user.city.isNotEmpty);
 
-    final hasInterests = user != null &&
+    final hasInterests = !isGroup && user != null &&
         (user.interests.isNotEmpty ||
             user.music.isNotEmpty ||
             user.tv.isNotEmpty ||
             user.quotes.isNotEmpty ||
             user.about.isNotEmpty);
+
+    final hasAnyInfo = isGroup ? hasGroupInfo : (hasBasicInfo || hasContacts || hasInterests);
+    if (!hasAnyInfo) return const SizedBox.shrink();
 
     return Column(
       children: [
@@ -1123,43 +1377,83 @@ class _WallViewState extends State<WallView>
           child: SizeTransition(
             sizeFactor: _infoHeightFactor,
             alignment: Alignment.topCenter,
-            child: (user != null)
-                ? Container(
-                    width: double.infinity,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1F2A37),
-                      border: Border(
-                        bottom: BorderSide(color: Color(0xFF161E28), width: 1),
-                      ),
-                    ),
-                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        if (hasBasicInfo)
-                          _buildInfoCard(
+            child: Container(
+              width: double.infinity,
+              decoration: const BoxDecoration(
+                color: Color(0xFF1F2A37),
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFF161E28), width: 1),
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+              child: Builder(
+                builder: (context) {
+                  final Widget? leftWidget;
+                  final Widget? rightWidget;
+
+                  if (isGroup) {
+                    final hasGroupMeta = user.site.isNotEmpty ||
+                        user.city.isNotEmpty ||
+                        user.groupTypeName.isNotEmpty ||
+                        user.registrationDate.isNotEmpty;
+                    final hasGroupAbout = user.about.isNotEmpty;
+
+                    leftWidget = hasGroupMeta
+                        ? _buildInfoCard(
                             children: [
-                              DottedLeaderRow(label: 'Местоимения', value: user.pronouns),
-                              DottedLeaderRow(label: 'Семейное положение', value: user.relation, isLink: true),
-                              DottedLeaderRow(label: 'Дата регистрации', value: user.registrationDate),
-                              DottedLeaderRow(label: 'Родной город', value: user.homeTown, isLink: true),
-                              DottedLeaderRow(label: 'Полит. взгляды', value: user.political),
-                              DottedLeaderRow(label: 'День рождения', value: user.bdate),
+                              if (user.site.isNotEmpty)
+                                DottedLeaderRow(label: 'Веб-сайт', value: user.site, isLink: true),
+                              if (user.city.isNotEmpty)
+                                DottedLeaderRow(label: 'Город', value: user.city),
+                              if (user.groupTypeName.isNotEmpty)
+                                DottedLeaderRow(label: 'Тип', value: user.groupTypeName),
+                              if (user.registrationDate.isNotEmpty)
+                                DottedLeaderRow(label: 'Создано', value: User.formatRegistrationDate(user.registrationDate)),
                             ],
-                          ),
-                        if (hasContacts) ...[
-                          if (hasBasicInfo) const SizedBox(height: 10),
-                          _buildInfoCard(
+                          )
+                        : null;
+
+                    rightWidget = hasGroupAbout
+                        ? _buildInfoCard(
                             children: [
-                              DottedLeaderRow(label: 'Telegram', value: user.telegram),
-                              DottedLeaderRow(label: 'Личный сайт', value: user.site, isLink: true),
-                              DottedLeaderRow(label: 'Город', value: user.city),
+                              _buildBlockInfo('Описание', user.about),
                             ],
-                          ),
+                          )
+                        : null;
+                  } else {
+                    if (hasBasicInfo || hasContacts) {
+                      leftWidget = Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (hasBasicInfo)
+                            _buildInfoCard(
+                              children: [
+                                DottedLeaderRow(label: 'Местоимения', value: user.pronouns),
+                                DottedLeaderRow(label: 'Семейное положение', value: user.relation, isLink: true),
+                                DottedLeaderRow(label: 'Дата регистрации', value: User.formatRegistrationDate(user.registrationDate)),
+                                DottedLeaderRow(label: 'Родной город', value: user.homeTown, isLink: true),
+                                DottedLeaderRow(label: 'Полит. взгляды', value: user.political),
+                                DottedLeaderRow(label: 'День рождения', value: user.bdate),
+                              ],
+                            ),
+                          if (hasBasicInfo && hasContacts) const SizedBox(height: 10),
+                          if (hasContacts)
+                            _buildInfoCard(
+                              children: [
+                                DottedLeaderRow(label: 'Telegram', value: user.telegram),
+                                DottedLeaderRow(label: 'Личный сайт', value: user.site, isLink: true),
+                                DottedLeaderRow(label: 'Город', value: user.city),
+                              ],
+                            ),
                         ],
-                        if (hasInterests) ...[
-                          if (hasBasicInfo || hasContacts) const SizedBox(height: 10),
-                          _buildInfoCard(
+                      );
+                    } else {
+                      leftWidget = null;
+                    }
+
+                    rightWidget = hasInterests
+                        ? _buildInfoCard(
                             children: [
                               if (user.interests.isNotEmpty)
                                 _buildBlockInfo('Интересы', user.interests),
@@ -1172,12 +1466,43 @@ class _WallViewState extends State<WallView>
                               if (user.about.isNotEmpty)
                                 _buildBlockInfo('О себе', user.about),
                             ],
-                          ),
-                        ],
-                      ],
-                    ),
-                  )
-                : const SizedBox.shrink(),
+                          )
+                        : null;
+                  }
+
+                  return LayoutBuilder(
+                    builder: (context, constraints) {
+                      final bool isWide = constraints.maxWidth >= 520;
+
+                      if (leftWidget != null && rightWidget != null) {
+                        if (isWide) {
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(child: leftWidget),
+                              const SizedBox(width: 10),
+                              Expanded(child: rightWidget),
+                            ],
+                          );
+                        } else {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              leftWidget,
+                              const SizedBox(height: 10),
+                              rightWidget,
+                            ],
+                          );
+                        }
+                      }
+
+                      return leftWidget ?? rightWidget ?? const SizedBox.shrink();
+                    },
+                  );
+                },
+              ),
+            ),
           ),
         ),
       ],
@@ -1292,7 +1617,11 @@ class _WallViewState extends State<WallView>
               const SizedBox(width: 8),
               _buildFilterPill(
                 'owner',
-                _isMyWall ? 'Мои записи' : 'Записи ${_user?.firstName ?? 'автора'}',
+                _isMyWall
+                    ? 'Мои записи'
+                    : (_isGroupWall
+                        ? 'Записи сообщества'
+                        : 'Записи ${_user?.firstName ?? 'автора'}'),
               ),
             ],
           ),

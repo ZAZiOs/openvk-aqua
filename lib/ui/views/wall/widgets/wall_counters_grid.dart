@@ -4,11 +4,13 @@ import '../../../../core/models/user.dart';
 
 class WallCountersGrid extends StatelessWidget {
   final UserCounters counters;
+  final bool isGroup;
   final ValueChanged<String>? onCounterTap;
 
   const WallCountersGrid({
     super.key,
     required this.counters,
+    this.isGroup = false,
     this.onCounterTap,
   });
 
@@ -23,38 +25,74 @@ class WallCountersGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      _CounterItem(
-        count: counters.friends,
-        label: _plural(counters.friends, 'Друг', 'Друга', 'Друзей'),
-        keyId: 'friends',
-      ),
-      _CounterItem(
-        count: counters.groups,
-        label: _plural(counters.groups, 'Группа', 'Группы', 'Групп'),
-        keyId: 'groups',
-      ),
-      _CounterItem(
-        count: counters.followers,
-        label: _plural(counters.followers, 'Подписчик', 'Подписчика', 'Подписчиков'),
-        keyId: 'followers',
-      ),
-      _CounterItem(
-        count: counters.photos,
-        label: _plural(counters.photos, 'Фотография', 'Фотографии', 'Фотографий'),
-        keyId: 'photos',
-      ),
-      _CounterItem(
-        count: counters.videos,
-        label: _plural(counters.videos, 'Видеозапись', 'Видеозаписи', 'Видеозаписей'),
-        keyId: 'videos',
-      ),
-      _CounterItem(
-        count: counters.audios,
-        label: _plural(counters.audios, 'Аудиозапись', 'Аудиозаписи', 'Аудиозаписей'),
-        keyId: 'audios',
-      ),
-    ];
+    final List<_CounterItem> items;
+    if (isGroup) {
+      items = [
+        _CounterItem(
+          count: counters.followers,
+          label: _plural(counters.followers, 'Участник', 'Участника', 'Участников'),
+          keyId: 'members',
+        ),
+        _CounterItem(
+          count: counters.photos,
+          label: _plural(counters.photos, 'Фотография', 'Фотографии', 'Фотографий'),
+          keyId: 'photos',
+        ),
+        _CounterItem(
+          count: counters.videos,
+          label: _plural(counters.videos, 'Видеозапись', 'Видеозаписи', 'Видеозаписей'),
+          keyId: 'videos',
+        ),
+        _CounterItem(
+          count: counters.audios,
+          label: _plural(counters.audios, 'Аудиозапись', 'Аудиозаписи', 'Аудиозаписей'),
+          keyId: 'audios',
+        ),
+        _CounterItem(
+          count: counters.topics,
+          label: _plural(counters.topics, 'Обсуждение', 'Обсуждения', 'Обсуждений'),
+          keyId: 'topics',
+        ),
+        _CounterItem(
+          count: counters.docs,
+          label: _plural(counters.docs, 'Документ', 'Документа', 'Документов'),
+          keyId: 'docs',
+        ),
+      ];
+    } else {
+      items = [
+        _CounterItem(
+          count: counters.friends,
+          label: _plural(counters.friends, 'Друг', 'Друга', 'Друзей'),
+          keyId: 'friends',
+        ),
+        _CounterItem(
+          count: counters.groups,
+          label: _plural(counters.groups, 'Группа', 'Группы', 'Групп'),
+          keyId: 'groups',
+        ),
+        _CounterItem(
+          count: counters.followers,
+          label: _plural(counters.followers, 'Подписчик', 'Подписчика', 'Подписчиков'),
+          keyId: 'followers',
+        ),
+        _CounterItem(
+          count: counters.photos,
+          label: _plural(counters.photos, 'Фотография', 'Фотографии', 'Фотографий'),
+          keyId: 'photos',
+        ),
+        _CounterItem(
+          count: counters.videos,
+          label: _plural(counters.videos, 'Видеозапись', 'Видеозаписи', 'Видеозаписей'),
+          keyId: 'videos',
+        ),
+        _CounterItem(
+          count: counters.audios,
+          label: _plural(counters.audios, 'Аудиозапись', 'Аудиозаписи', 'Аудиозаписей'),
+          keyId: 'audios',
+        ),
+      ];
+    }
 
     return Column(
       children: [

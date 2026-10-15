@@ -12,8 +12,45 @@ class WallHandler {
 
   WallHandler(this._client);
 
-  /// Fetch user detailed profile info including counters and personal fields.
+  /// Fetch user or community detailed profile info including counters and personal fields.
   Future<ApiResponse<User>> getProfile(int userId, {bool forceRefresh = false}) async {
+    if (userId < 0) {
+      final absId = userId.abs();
+      final res = await _client.callCached<User>(
+        'groups.getById',
+        cacheKey: 'group_profile_$absId',
+        cacheTag: 'group_profile_$absId',
+        cachePolicy: forceRefresh ? CachePolicy.networkOnly : CachePolicy.cacheFirst,
+        cacheTtl: const Duration(days: 1),
+        params: {
+          'group_ids': absId.toString(),
+          'fields':
+              'description,members_count,status,can_post,is_member,is_admin,counters,'
+              'photo_50,photo_100,photo_200,site,city,country,activity,type,is_closed,'
+              'registration_date,created_at,start_date',
+        },
+        parser: (json) {
+          if (json is List && json.isNotEmpty) {
+            return User.fromJson(JsonSafe.toMap(json.first));
+          }
+          if (json is Map && json['items'] is List && (json['items'] as List).isNotEmpty) {
+            return User.fromJson(JsonSafe.toMap((json['items'] as List).first));
+          }
+          if (json is Map) {
+            return User.fromJson(JsonSafe.toMap(json));
+          }
+          return User.empty(userId);
+        },
+        fallback: () => User.empty(userId),
+      );
+
+      if (res.isSuccess && res.dataOrNull != null) {
+        _client.userCache.putUsers([res.dataOrNull!]);
+      }
+
+      return res;
+    }
+
     const fields =
         'photo_50,photo_100,photo_max,online,status,counters,sex,bdate,city,country,'
         'home_town,about,activities,books,games,interests,movies,music,tv,quotes,'

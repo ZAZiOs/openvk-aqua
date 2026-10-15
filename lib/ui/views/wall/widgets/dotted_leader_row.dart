@@ -34,8 +34,7 @@ class DottedLeaderRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3.5),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.baseline,
-        textBaseline: TextBaseline.alphabetic,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Text(
             label,
@@ -52,36 +51,34 @@ class DottedLeaderRow extends StatelessWidget {
               ],
             ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 6),
           Expanded(
             child: SizedBox(
-              height: 14,
+              height: 16,
               child: CustomPaint(
                 painter: _DottedLeaderPainter(color: actualDotsColor),
               ),
             ),
           ),
-          const SizedBox(width: 4),
-          Flexible(
-            child: GestureDetector(
-              onTap: onTap,
-              child: Text(
-                value,
-                textAlign: TextAlign.right,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: isLink ? actualLinkColor : actualValueColor,
-                  decoration: isLink ? TextDecoration.underline : TextDecoration.none,
-                  decorationColor: actualLinkColor,
-                  fontWeight: isLink ? FontWeight.w600 : FontWeight.w500,
-                  shadows: const [
-                    Shadow(
-                      color: Colors.black54,
-                      offset: Offset(0, 1),
-                      blurRadius: 0.5,
-                    ),
-                  ],
-                ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: onTap,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontSize: 13,
+                color: isLink ? actualLinkColor : actualValueColor,
+                decoration: isLink ? TextDecoration.underline : TextDecoration.none,
+                decorationColor: actualLinkColor,
+                fontWeight: isLink ? FontWeight.w600 : FontWeight.w500,
+                shadows: const [
+                  Shadow(
+                    color: Colors.black54,
+                    offset: Offset(0, 1),
+                    blurRadius: 0.5,
+                  ),
+                ],
               ),
             ),
           ),
@@ -100,13 +97,14 @@ class _DottedLeaderPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 1.0;
+      ..style = PaintingStyle.fill;
 
-    const dotSpacing = 5.0;
-    final y = size.height - 3.0;
+    const dotSpacing = 5.5;
+    const dotRadius = 0.85;
+    final y = size.height / 2;
 
-    for (double x = 0; x < size.width; x += dotSpacing) {
-      canvas.drawCircle(Offset(x, y), 0.8, paint);
+    for (double x = 2.0; x < size.width - 2.0; x += dotSpacing) {
+      canvas.drawCircle(Offset(x, y), dotRadius, paint);
     }
   }
 

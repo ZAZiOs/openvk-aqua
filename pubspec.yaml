@@ -1,7 +1,7 @@
 name: openvk_aqua
 description: "OpenVK iOS 6 styled client"
 publish_to: 'none'
-version: 1.0.0+1
+version: 0.3.0
 
 environment:
   sdk: ^3.13.5

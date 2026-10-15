@@ -7,6 +7,8 @@ class UserCounters {
   final int photos;
   final int videos;
   final int audios;
+  final int topics;
+  final int docs;
 
   const UserCounters({
     this.friends = 0,
@@ -15,6 +17,8 @@ class UserCounters {
     this.photos = 0,
     this.videos = 0,
     this.audios = 0,
+    this.topics = 0,
+    this.docs = 0,
   });
 
   factory UserCounters.fromJson(Map<String, dynamic>? json) {
@@ -22,10 +26,12 @@ class UserCounters {
     return UserCounters(
       friends: JsonSafe.toInt(json['friends']),
       groups: JsonSafe.toInt(json['groups'] ?? json['pages']),
-      followers: JsonSafe.toInt(json['followers'] ?? json['subscriptions']),
+      followers: JsonSafe.toInt(json['followers'] ?? json['subscriptions'] ?? json['members_count'] ?? json['members']),
       photos: JsonSafe.toInt(json['photos']),
       videos: JsonSafe.toInt(json['videos']),
       audios: JsonSafe.toInt(json['audios']),
+      topics: JsonSafe.toInt(json['topics']),
+      docs: JsonSafe.toInt(json['docs']),
     );
   }
 }
@@ -62,6 +68,13 @@ class User {
   final UserCounters counters;
   final int? friendStatus;
 
+  // Community-specific fields
+  final bool isMember;
+  final bool isAdmin;
+  final bool canPost;
+  final String groupType;
+  final bool isClosed;
+
   const User({
     required this.id,
     required this.firstName,
@@ -91,7 +104,21 @@ class User {
     this.about = '',
     this.counters = const UserCounters(),
     this.friendStatus,
+    this.isMember = false,
+    this.isAdmin = false,
+    this.canPost = true,
+    this.groupType = '',
+    this.isClosed = false,
   });
+
+  String get groupTypeName {
+    if (!isGroup) return '';
+    final t = groupType.toLowerCase();
+    if (t == 'page') return 'Публичная страница';
+    if (t == 'event') return 'Мероприятие';
+    if (isClosed) return 'Закрытая группа';
+    return 'Открытая группа';
+  }
 
   int get genderType {
     if (customGenderType != null) return customGenderType!;
@@ -135,6 +162,32 @@ class User {
 
     if (isGroup) {
       final name = JsonSafe.toStr(json['name'], 'Сообщество');
+      final rawIsMember = json['is_member'];
+      final bool isMember = rawIsMember == true ||
+          rawIsMember == 1 ||
+          rawIsMember == '1';
+      final rawIsAdmin = json['is_admin'];
+      final bool isAdmin = rawIsAdmin == true ||
+          rawIsAdmin == 1 ||
+          rawIsAdmin == '1';
+      final rawCanPost = json['can_post'];
+      final bool canPost = rawCanPost == true ||
+          rawCanPost == 1 ||
+          rawCanPost == '1';
+      final rawClosed = json['is_closed'];
+      final bool isClosed = rawClosed == true ||
+          rawClosed == 1 ||
+          rawClosed == '1';
+      final membersCount = JsonSafe.toInt(
+        json['members_count'] ?? json['members'] ?? (json['counters'] is Map ? json['counters']['followers'] : 0),
+      );
+
+      final Map<String, dynamic>? countersMap = json['counters'] is Map<String, dynamic>
+          ? json['counters'] as Map<String, dynamic>
+          : null;
+
+      final cityVal = json['city'] is Map ? JsonSafe.toStr(json['city']['title']) : JsonSafe.toStr(json['city']);
+
       return User(
         id: id < 0 ? id : -id,
         firstName: name,
@@ -143,16 +196,30 @@ class User {
           json['photo_50'] ?? json['photo_rec'] ?? json['photo'],
         ),
         photo100: JsonSafe.toStr(
-          json['photo_100'] ?? json['photo_medium_rec'] ?? json['photo_medium'],
+          json['photo_100'] ?? json['photo_medium_rec'] ?? json['photo_medium'] ?? json['photo_200'],
         ),
         isOnline: false,
         isGroup: true,
         status: JsonSafe.toStr(json['status'] ?? json['activity']),
         about: JsonSafe.toStr(json['description'] ?? json['about']),
         site: JsonSafe.toStr(json['site']),
-        counters: UserCounters.fromJson(
-          json['counters'] is Map<String, dynamic> ? json['counters'] : null,
+        city: cityVal,
+        registrationDate: formatRegistrationDate(json['registration_date'] ?? json['created_at'] ?? json['start_date']),
+        counters: UserCounters(
+          friends: 0,
+          groups: 0,
+          followers: membersCount,
+          photos: JsonSafe.toInt(countersMap?['photos']),
+          videos: JsonSafe.toInt(countersMap?['videos']),
+          audios: JsonSafe.toInt(countersMap?['audios']),
+          topics: JsonSafe.toInt(countersMap?['topics']),
+          docs: JsonSafe.toInt(countersMap?['docs']),
         ),
+        isMember: isMember,
+        isAdmin: isAdmin,
+        canPost: canPost,
+        groupType: JsonSafe.toStr(json['type'] ?? json['group_type'], 'group'),
+        isClosed: isClosed,
       );
     }
 
@@ -233,7 +300,7 @@ class User {
     }
 
     // Registration date
-    String regDateStr = JsonSafe.toStr(
+    String regDateStr = formatRegistrationDate(
       json['registration_date'] ?? json['reg_date'] ?? json['created_at'],
     );
 
@@ -323,6 +390,39 @@ class User {
       default:
         return '';
     }
+  }
+
+  /// Formats raw registration / creation date into "YYYY.MM.DD HH:MM".
+  /// Handles Unix timestamps in seconds (e.g. 1792086550) or milliseconds,
+  /// ISO-8601 strings, or returns original formatted string as fallback.
+  static String formatRegistrationDate(dynamic raw) {
+    if (raw == null) return '';
+    final str = raw.toString().trim();
+    if (str.isEmpty) return '';
+
+    DateTime? dt;
+    final numVal = int.tryParse(str);
+    if (numVal != null && numVal > 0) {
+      if (numVal > 100000000000) {
+        dt = DateTime.fromMillisecondsSinceEpoch(numVal);
+      } else {
+        dt = DateTime.fromMillisecondsSinceEpoch(numVal * 1000);
+      }
+    } else {
+      dt = DateTime.tryParse(str);
+    }
+
+    if (dt != null) {
+      final local = dt.toLocal();
+      final year = local.year.toString().padLeft(4, '0');
+      final month = local.month.toString().padLeft(2, '0');
+      final day = local.day.toString().padLeft(2, '0');
+      final hour = local.hour.toString().padLeft(2, '0');
+      final minute = local.minute.toString().padLeft(2, '0');
+      return '$year.$month.$day $hour:$minute';
+    }
+
+    return str;
   }
 
   factory User.empty([int id = 0]) => User(

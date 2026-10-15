@@ -285,11 +285,16 @@ class _WallPostCardState extends State<WallPostCard> {
 
             // Attachments
             if (post.attachments.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              RetroAttachmentGrid(attachments: post.attachments),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: RetroAttachmentGrid(attachments: post.attachments),
+              ),
+              const SizedBox(height: 10),
+            ] else ...[
+              const SizedBox(height: 6),
             ],
 
-            const SizedBox(height: 8),
             const Divider(height: 1, color: Color(0xFFE2E6EB)),
 
             // Actions Footer: Like, Comment, Repost in iOS 6 pill style

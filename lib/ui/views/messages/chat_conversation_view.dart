@@ -105,7 +105,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       _messageKeys.putIfAbsent(id, () => GlobalKey());
 
   void _openUserProfile(int userId) {
-    if (userId <= 0) return;
+    if (userId == 0) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => WallView(

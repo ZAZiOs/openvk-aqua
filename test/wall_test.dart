@@ -77,6 +77,22 @@ void main() {
       expect(user.counters.audios, 17);
     });
 
+    test('User.formatRegistrationDate formats timestamp to YYYY.MM.DD HH:MM', () {
+      final dt = DateTime(2026, 10, 15, 20, 49);
+      final ts = dt.millisecondsSinceEpoch ~/ 1000;
+      expect(User.formatRegistrationDate(ts), '2026.10.15 20:49');
+      expect(User.formatRegistrationDate(ts.toString()), '2026.10.15 20:49');
+
+      // Matches pattern for 1792086550
+      final formatted = User.formatRegistrationDate(1792086550);
+      expect(RegExp(r'^\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}$').hasMatch(formatted), isTrue);
+
+      // Preserves non-numeric strings
+      expect(User.formatRegistrationDate('5 мая в 04:02'), '5 мая в 04:02');
+      expect(User.formatRegistrationDate(''), '');
+      expect(User.formatRegistrationDate(null), '');
+    });
+
     test('Post.fromJson parses post and resolves author', () {
       final postJson = {
         'id': 555,
@@ -263,6 +279,7 @@ void main() {
           isOnline: true,
           status: 'Абсолютный гений',
           counters: UserCounters(friends: 31, photos: 20),
+          bdate: '15 Сентября',
         ),
       ]);
 
@@ -399,6 +416,119 @@ void main() {
       // Dialog closed, still in friends
       expect(find.text('Удаление из друзей'), findsNothing);
       expect(find.text('В друзьях'), findsOneWidget);
+    });
+
+    testWidgets('WallCountersGrid renders group counters correctly', (tester) async {
+      const counters = UserCounters(
+        followers: 1250,
+        photos: 15,
+        videos: 3,
+        audios: 8,
+        topics: 4,
+        docs: 2,
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: WallCountersGrid(
+              counters: counters,
+              isGroup: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('1250'), findsOneWidget);
+      expect(find.text('Участников'), findsOneWidget);
+      expect(find.text('15'), findsOneWidget);
+      expect(find.text('Фотографий'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('Видеозаписи'), findsOneWidget);
+      expect(find.text('8'), findsOneWidget);
+      expect(find.text('Аудиозаписей'), findsOneWidget);
+      expect(find.text('4'), findsOneWidget);
+      expect(find.text('Обсуждения'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('Документа'), findsOneWidget);
+    });
+
+    testWidgets('WallView renders group wall with iOS 6 header, subscription button, and info', (tester) async {
+      final client = OpenVkClient();
+      const account = SavedAccount(
+        id: 1,
+        instanceId: 1,
+        userId: 100,
+        name: 'Мой Профиль',
+        avatarUrl: '',
+        accessToken: 'token',
+        isActive: true,
+      );
+
+      // Cache the group (group with id 42 has ownerId -42)
+      client.userCache.putUsers([
+        const User(
+          id: -42,
+          firstName: 'ВКонтакте для всех',
+          lastName: '',
+          photo50: '',
+          photo100: '',
+          isOnline: false,
+          isGroup: true,
+          groupType: 'page',
+          isMember: true,
+          status: 'Новости и анонсы',
+          about: 'Официальное сообщество пользователей',
+          site: 'https://openvk.su',
+          counters: UserCounters(followers: 1500, photos: 40, topics: 5),
+        ),
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WallView(
+            client: client,
+            account: account,
+            ownerId: -42,
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Check group name and status
+      expect(find.text('ВКонтакте для всех'), findsWidgets);
+      expect(find.text('Новости и анонсы'), findsOneWidget);
+
+      // Check group type badge and info row
+      expect(find.text('Публичная страница'), findsNWidgets(2));
+
+      // Check group action buttons
+      expect(find.text('Вы подписаны'), findsOneWidget);
+      expect(find.text('Сообщение'), findsOneWidget);
+
+      // Check filter pills
+      expect(find.text('Все записи'), findsOneWidget);
+      expect(find.text('Записи сообщества'), findsOneWidget);
+
+      // Check info section
+      expect(find.text('Информация'), findsOneWidget);
+
+      // Tap on "Вы подписаны" to verify leave confirmation modal
+      await tester.tap(find.text('Вы подписаны'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Отписка от страницы'), findsOneWidget);
+      expect(find.text('Вы действительно хотите отписаться от сообщества «ВКонтакте для всех»?'), findsOneWidget);
+      expect(find.text('Отписаться'), findsOneWidget);
+      expect(find.text('Отмена'), findsOneWidget);
+
+      // Tap cancel
+      await tester.tap(find.text('Отмена'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Отписка от страницы'), findsNothing);
+      expect(find.text('Вы подписаны'), findsOneWidget);
     });
   });
 }

@@ -202,8 +202,12 @@ class RetroAttachmentGrid extends StatelessWidget {
   }
 
   Widget _buildVisualGrid(BuildContext context, List<Attachment> items) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFD4DAE2), width: 0.5),
+      ),
+      clipBehavior: Clip.antiAlias,
       child: switch (items.length) {
         1 => _buildSingleMedia(context, items),
         2 => _buildTwoMedia(context, items),
@@ -224,8 +228,10 @@ class RetroAttachmentGrid extends StatelessWidget {
       }
     }
 
+    final maxH = maxWidth != null ? 240.0 : 380.0;
+
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxHeight: 280),
+      constraints: BoxConstraints(maxHeight: maxH),
       child: AspectRatio(
         aspectRatio: aspectRatio,
         child: _buildMediaCell(context, items, 0),

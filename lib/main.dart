@@ -375,22 +375,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     }
   }
 
-  void _toggleDrawer() {
-    if (_drawerController.isCompleted || _drawerController.value > 0.5) {
-      _drawerController.animateTo(
-        0.0,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
-      _drawerController.animateTo(
-        1.0,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
-      );
-    }
-  }
-
   void _onSelectSection(RetroSection section, {required bool isWide}) {
     setState(() => _currentSection = section);
     if (!isWide && _drawerController.value > 0) {
@@ -562,7 +546,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     final bool isMessages = _currentSection == RetroSection.messages;
     final bool isWall = _currentSection == RetroSection.profile;
     final bool isNews = _currentSection == RetroSection.news;
-    final bool hideSidebar = isWide || ((isMessages || isNews) && screenWidth < 360);
 
     Widget? appBarTitleWidget;
     String? appBarTitle = _currentSection.title;
@@ -584,7 +567,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         padding: const EdgeInsets.symmetric(horizontal: 10),
         hasShadow: false,
       );
-      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
+      appBarLeading = null;
     } else if (isMessages) {
       appBarTitle = null;
       final segmented = RetroSegmentedControl<String>(
@@ -611,7 +594,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
       } else {
         appBarTitleWidget = segmented;
       }
-      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
+      appBarLeading = null;
     } else if (isWall) {
       appBarTitle = 'Моя Стена';
       appBarLeading = RetroHeaderButton(
@@ -625,7 +608,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         ),
       ];
     } else {
-      appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
+      appBarLeading = null;
     }
 
     return Scaffold(

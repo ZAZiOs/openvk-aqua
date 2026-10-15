@@ -326,7 +326,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
   }
 
   void _openUserProfile(int userId) {
-    if (userId <= 0) return;
+    if (userId == 0) return;
 
     Navigator.of(context).push(
       MaterialPageRoute(
