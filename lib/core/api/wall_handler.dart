@@ -18,7 +18,7 @@ class WallHandler {
         'photo_50,photo_100,photo_max,online,status,counters,sex,bdate,city,country,'
         'home_town,about,activities,books,games,interests,movies,music,tv,quotes,'
         'screen_name,nickname,relation,relation_partner,personal,site,connections,'
-        'registration_date,created_at,reg_date';
+        'registration_date,created_at,reg_date,friend_status';
 
     final res = await _client.callCached<User>(
       'users.get',

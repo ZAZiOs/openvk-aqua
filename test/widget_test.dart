@@ -138,6 +138,41 @@ void main() {
     await tester.tap(find.text('Выход'));
     expect(logoutTriggered, isTrue);
   });
+
+  testWidgets('OpenVkApp displays OobeView when initialOobeCompleted is false, then transitions to LoginView', (
+    WidgetTester tester,
+  ) async {
+    await AppDatabase.instance.init(inMemory: true);
+    final client = OpenVkClient();
+    final authHandler = AuthHandler(client: client);
+
+    await tester.pumpWidget(
+      OpenVkApp(
+        authHandler: authHandler,
+        client: client,
+        initialOobeCompleted: false,
+      ),
+    );
+    await tester.pump();
+
+    // Verify OOBE elements
+    expect(find.text('Ассистент настройки'), findsOneWidget);
+    expect(find.text('OpenVK Aqua'), findsOneWidget);
+    expect(find.text('Уведомления'), findsOneWidget);
+    expect(find.text('Начать использование'), findsOneWidget);
+
+    // Tap "Начать использование"
+    await tester.tap(find.text('Начать использование'));
+    await tester.pumpAndSettle();
+
+    // Verify transition to LoginView
+    expect(find.text('Войти'), findsOneWidget);
+    expect(find.text('Телефон или e-mail'), findsOneWidget);
+
+    // Verify database flag was persisted
+    final completedInDb = await AppDatabase.instance.isOobeCompleted();
+    expect(completedInDb, isTrue);
+  });
 }
 
 void _dummyLogout() {}

@@ -20,5 +20,7 @@ export 'models/newsfeed_response.dart';
 export 'models/post.dart';
 export 'models/user.dart';
 export 'models/wall_response.dart';
+export 'notifications/notification_dispatcher.dart';
+export 'notifications/notification_payload.dart';
 export 'utils/json_safe.dart';
 

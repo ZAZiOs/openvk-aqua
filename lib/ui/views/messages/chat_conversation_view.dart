@@ -12,6 +12,7 @@ import '../../../core/models/conversation.dart';
 import '../../../core/models/conversations_response.dart';
 import '../../../core/models/message.dart';
 import '../../../core/models/user.dart';
+import '../../../core/notifications/notification_dispatcher.dart';
 import '../../theme/retro_theme.dart';
 import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_attachment_grid.dart';
@@ -119,6 +120,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   @override
   void initState() {
     super.initState();
+    NotificationDispatcher.instance.activePeerId = widget.conversation.peerId;
     _messagesHandler = MessagesHandler(widget.client);
     _scrollController.addListener(_onScroll);
     _loadHistory();
@@ -128,6 +130,9 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   @override
   void dispose() {
+    if (NotificationDispatcher.instance.activePeerId == widget.conversation.peerId) {
+      NotificationDispatcher.instance.activePeerId = null;
+    }
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _inputController.dispose();
     _scrollController.removeListener(_onScroll);

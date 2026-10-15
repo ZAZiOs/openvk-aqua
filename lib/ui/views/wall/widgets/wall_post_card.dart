@@ -75,230 +75,277 @@ class _WallPostCardState extends State<WallPostCard> {
         margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(color: const Color(0xFFC4CED8), width: 1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFBCC4CE), width: 1),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x33000000),
+              offset: Offset(0, 2),
+              blurRadius: 4,
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header: Avatar, Name, Date
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                GestureDetector(
-                  onTap: () => widget.onAuthorTap?.call(post.fromId),
-                  child: RetroAvatar(
-                    url: post.authorAvatarUrl,
-                    size: 40,
-                    fallbackText: post.authorName.isNotEmpty
-                        ? post.authorName[0].toUpperCase()
-                        : '?',
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      GestureDetector(
-                        onTap: () => widget.onAuthorTap?.call(post.fromId),
-                        child: Text(
-                          post.authorName,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF2B5885),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _formatDate(post.date),
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF8294A8),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (widget.onDeleteTap != null)
-                  PopupMenuButton<String>(
-                    icon: const Icon(Icons.more_horiz, size: 20, color: Color(0xFF8294A8)),
-                    padding: EdgeInsets.zero,
-                    itemBuilder: (context) => [
-                      const PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                            SizedBox(width: 8),
-                            Text('Удалить запись'),
-                          ],
-                        ),
-                      ),
-                    ],
-                    onSelected: (val) {
-                      if (val == 'delete') widget.onDeleteTap?.call();
-                    },
-                  ),
-              ],
-            ),
-          ),
-
-          // Post Text
-          if (text.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-              child: Column(
+              padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    displayText,
-                    style: const TextStyle(
-                      fontSize: 13.5,
-                      height: 1.38,
-                      color: Color(0xFF222222),
-                    ),
-                  ),
-                  if (isLongText && !_isExpanded)
-                    GestureDetector(
-                      onTap: () => setState(() => _isExpanded = true),
-                      child: const Padding(
-                        padding: EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Читать дальше..',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2B5885),
+                  GestureDetector(
+                    onTap: () => widget.onAuthorTap?.call(post.fromId),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: const Color(0xFFC0C7D0),
+                          width: 1,
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x14000000),
+                            offset: Offset(0, 1),
+                            blurRadius: 2,
                           ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(5),
+                        child: RetroAvatar(
+                          url: post.authorAvatarUrl,
+                          size: 40,
+                          fallbackText: post.authorName.isNotEmpty
+                              ? post.authorName[0].toUpperCase()
+                              : '?',
                         ),
                       ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        GestureDetector(
+                          onTap: () => widget.onAuthorTap?.call(post.fromId),
+                          child: Text(
+                            post.authorName,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF22446B),
+                              shadows: [
+                                Shadow(
+                                  color: Color(0x22FFFFFF),
+                                  offset: Offset(0, 1),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatDate(post.date),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Color(0xFF7A8999),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.onDeleteTap != null)
+                    PopupMenuButton<String>(
+                      icon: const Icon(Icons.more_horiz, size: 20, color: Color(0xFF7A8999)),
+                      padding: EdgeInsets.zero,
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                              SizedBox(width: 8),
+                              Text('Удалить запись'),
+                            ],
+                          ),
+                        ),
+                      ],
+                      onSelected: (val) {
+                        if (val == 'delete') widget.onDeleteTap?.call();
+                      },
                     ),
                 ],
               ),
             ),
 
-          // Repost (copy_history)
-          if (post.copyHistory.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Container(
-                decoration: const BoxDecoration(
-                  border: Border(
-                    left: BorderSide(color: Color(0xFFBACCE0), width: 3),
-                  ),
-                ),
-                padding: const EdgeInsets.only(left: 10),
+            // Post Text
+            if (text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final repost in post.copyHistory) ...[
-                      Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => widget.onAuthorTap?.call(repost.fromId),
-                            child: RetroAvatar(
-                              url: repost.authorAvatarUrl,
-                              size: 28,
-                              fallbackText: repost.authorName.isNotEmpty
-                                  ? repost.authorName[0].toUpperCase()
-                                  : '?',
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          GestureDetector(
-                            onTap: () => widget.onAuthorTap?.call(repost.fromId),
-                            child: Text(
-                              repost.authorName,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF2B5885),
-                              ),
-                            ),
-                          ),
-                        ],
+                    Text(
+                      displayText,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        height: 1.38,
+                        color: Color(0xFF1E242B),
                       ),
-                      if (repost.text.trim().isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          repost.text.trim(),
-                          style: const TextStyle(fontSize: 13, height: 1.35),
+                    ),
+                    if (isLongText && !_isExpanded)
+                      GestureDetector(
+                        onTap: () => setState(() => _isExpanded = true),
+                        child: const Padding(
+                          padding: EdgeInsets.only(top: 4),
+                          child: Text(
+                            'Читать дальше..',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF245899),
+                            ),
+                          ),
                         ),
-                      ],
-                      if (repost.attachments.isNotEmpty) ...[
-                        const SizedBox(height: 6),
-                        RetroAttachmentGrid(attachments: repost.attachments),
-                      ],
-                    ],
+                      ),
                   ],
                 ),
               ),
-            ),
-          ],
 
-          // Attachments
-          if (post.attachments.isNotEmpty) ...[
+            // Repost (copy_history)
+            if (post.copyHistory.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    border: Border(
+                      left: BorderSide(color: Color(0xFF9FB2C8), width: 3),
+                    ),
+                  ),
+                  padding: const EdgeInsets.only(left: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final repost in post.copyHistory) ...[
+                        Row(
+                          children: [
+                            GestureDetector(
+                              onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(color: const Color(0xFFC0C7D0), width: 0.5),
+                                ),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(3.5),
+                                  child: RetroAvatar(
+                                    url: repost.authorAvatarUrl,
+                                    size: 26,
+                                    fallbackText: repost.authorName.isNotEmpty
+                                        ? repost.authorName[0].toUpperCase()
+                                        : '?',
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            GestureDetector(
+                              onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                              child: Text(
+                                repost.authorName,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF22446B),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (repost.text.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            repost.text.trim(),
+                            style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF1E242B)),
+                          ),
+                        ],
+                        if (repost.attachments.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          RetroAttachmentGrid(attachments: repost.attachments),
+                        ],
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+
+            // Attachments
+            if (post.attachments.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              RetroAttachmentGrid(attachments: post.attachments),
+            ],
+
             const SizedBox(height: 8),
-            RetroAttachmentGrid(attachments: post.attachments),
-          ],
+            const Divider(height: 1, color: Color(0xFFE2E6EB)),
 
-          const SizedBox(height: 8),
-          const Divider(height: 1, color: Color(0xFFE9EDF2)),
+            // Actions Footer: Like, Comment, Repost in iOS 6 pill style
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                children: [
+                  // Likes
+                  _ActionButton(
+                    icon: post.userLikes ? Icons.favorite : Icons.favorite_border,
+                    iconColor: post.userLikes ? const Color(0xFFD62B42) : const Color(0xFF6B7887),
+                    label: post.likesCount > 0 ? '${post.likesCount}' : '',
+                    textColor: post.userLikes ? const Color(0xFFD62B42) : const Color(0xFF384656),
+                    isActive: post.userLikes,
+                    activeType: _ActionPillType.like,
+                    onTap: widget.onLikeToggle,
+                  ),
+                  const SizedBox(width: 8),
 
-          // Actions Footer: Like, Comment, Repost
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            child: Row(
-              children: [
-                // Likes
-                _ActionButton(
-                  icon: post.userLikes ? Icons.favorite : Icons.favorite_border,
-                  iconColor: post.userLikes ? const Color(0xFFE04051) : const Color(0xFF8294A8),
-                  label: post.likesCount > 0 ? '${post.likesCount}' : '',
-                  textColor: post.userLikes ? const Color(0xFFE04051) : const Color(0xFF656565),
-                  onTap: widget.onLikeToggle,
-                ),
-                const SizedBox(width: 12),
+                  // Comments
+                  _ActionButton(
+                    icon: Icons.mode_comment_outlined,
+                    iconColor: const Color(0xFF6B7887),
+                    label: post.commentsCount > 0 ? '${post.commentsCount}' : '',
+                    textColor: const Color(0xFF384656),
+                    onTap: widget.onCommentsTap,
+                  ),
+                  const SizedBox(width: 8),
 
-                // Comments
-                _ActionButton(
-                  icon: Icons.mode_comment_outlined,
-                  iconColor: const Color(0xFF8294A8),
-                  label: post.commentsCount > 0 ? '${post.commentsCount}' : '',
-                  textColor: const Color(0xFF656565),
-                  onTap: widget.onCommentsTap,
-                ),
-                const SizedBox(width: 12),
-
-                // Repost
-                _ActionButton(
-                  icon: Icons.reply,
-                  iconColor: const Color(0xFF8294A8),
-                  label: post.repostsCount > 0 ? '${post.repostsCount}' : '',
-                  textColor: const Color(0xFF656565),
-                  onTap: widget.onRepostTap,
-                ),
-              ],
+                  // Repost
+                  _ActionButton(
+                    icon: Icons.reply,
+                    iconColor: const Color(0xFF6B7887),
+                    label: post.repostsCount > 0 ? '${post.repostsCount}' : '',
+                    textColor: const Color(0xFF384656),
+                    onTap: widget.onRepostTap,
+                  ),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
-}
+
+enum _ActionPillType { normal, like }
 
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final Color iconColor;
   final String label;
   final Color textColor;
+  final bool isActive;
+  final _ActionPillType activeType;
   final VoidCallback? onTap;
 
   const _ActionButton({
@@ -306,30 +353,68 @@ class _ActionButton extends StatelessWidget {
     required this.iconColor,
     required this.label,
     required this.textColor,
+    this.isActive = false,
+    this.activeType = _ActionPillType.normal,
     this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isLikedActive = isActive && activeType == _ActionPillType.like;
+
+    final gradientColors = isLikedActive
+        ? const [Color(0xFFFFF1F2), Color(0xFFFFD6DA)]
+        : const [Color(0xFFFFFFFF), Color(0xFFECEFF3)];
+
+    final borderColor = isLikedActive
+        ? const Color(0xFFE58894)
+        : const Color(0xFFBCC4CE);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(4),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        borderRadius: BorderRadius.circular(13),
+        child: Container(
+          height: 27,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: gradientColors,
+            ),
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: borderColor, width: 1),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x10000000),
+                offset: Offset(0, 1),
+                blurRadius: 1,
+              ),
+            ],
+          ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 18, color: iconColor),
+              Icon(icon, size: 16, color: iconColor),
               if (label.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 Text(
                   label,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 12,
                     fontWeight: FontWeight.bold,
                     color: textColor,
+                    shadows: isLikedActive
+                        ? null
+                        : const [
+                            Shadow(
+                              color: Colors.white,
+                              offset: Offset(0, 1),
+                              blurRadius: 0,
+                            ),
+                          ],
                   ),
                 ),
               ],

@@ -60,6 +60,7 @@ class User {
   final String quotes;
   final String about;
   final UserCounters counters;
+  final int? friendStatus;
 
   const User({
     required this.id,
@@ -89,6 +90,7 @@ class User {
     this.quotes = '',
     this.about = '',
     this.counters = const UserCounters(),
+    this.friendStatus,
   });
 
   int get genderType {
@@ -269,6 +271,9 @@ class User {
       counters: UserCounters.fromJson(
         json['counters'] is Map<String, dynamic> ? json['counters'] : null,
       ),
+      friendStatus: json.containsKey('friend_status')
+          ? JsonSafe.toInt(json['friend_status'])
+          : null,
     );
   }
 

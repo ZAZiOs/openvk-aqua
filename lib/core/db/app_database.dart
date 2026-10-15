@@ -62,6 +62,13 @@ class AppDatabase {
       "UPDATE instances SET base_url = 'https://api.openvk.org' WHERE base_url = 'https://openvk.org'",
     );
 
+    await _db!.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
     return _db!;
   }
 
@@ -107,11 +114,47 @@ class AppDatabase {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+
     await db.insert('instances', {
       'name': 'OpenVK Official',
       'base_url': 'https://api.openvk.org',
       'is_active': 1,
     });
+  }
+
+  Future<bool> isOobeCompleted() async {
+    if (!isInitialized) return false;
+    try {
+      final res = await db.query(
+        'app_settings',
+        where: 'key = ?',
+        whereArgs: ['oobe_completed'],
+      );
+      if (res.isEmpty) return false;
+      return res.first['value'] == '1' || res.first['value'] == 'true';
+    } catch (e) {
+      debugPrint('[AppDatabase] Error reading oobe_completed: $e');
+      return false;
+    }
+  }
+
+  Future<void> setOobeCompleted(bool completed) async {
+    if (!isInitialized) return;
+    try {
+      await db.insert(
+        'app_settings',
+        {'key': 'oobe_completed', 'value': completed ? '1' : '0'},
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    } catch (e) {
+      debugPrint('[AppDatabase] Error saving oobe_completed: $e');
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {}

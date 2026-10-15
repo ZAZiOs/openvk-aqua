@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 import 'core/core.dart';
 import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
+import 'ui/views/messages/chat_conversation_view.dart';
 import 'ui/views/messages/messages_view.dart';
 import 'ui/views/newsfeed/newsfeed_view.dart';
+import 'ui/views/oobe/oobe_view.dart';
 import 'ui/views/settings/settings_view.dart';
 import 'ui/views/wall/wall_view.dart';
 import 'ui/widgets/retro_app_bar.dart';
@@ -21,6 +23,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await AppDatabase.instance.init();
+  await NotificationDispatcher.instance.initialize();
 
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -37,12 +40,14 @@ void main() async {
   final authHandler = AuthHandler(client: client);
 
   final savedAccount = await authHandler.restoreSession();
+  final isOobeCompleted = await AppDatabase.instance.isOobeCompleted();
 
   runApp(
     OpenVkApp(
       authHandler: authHandler,
       client: client,
       initialAccount: savedAccount,
+      initialOobeCompleted: isOobeCompleted,
     ),
   );
 }
@@ -56,6 +61,7 @@ class OpenVkApp extends StatefulWidget {
   final OpenVkClient client;
   final SavedAccount? initialAccount;
   final GlobalKey<NavigatorState>? navigatorKey;
+  final bool initialOobeCompleted;
 
   const OpenVkApp({
     super.key,
@@ -63,6 +69,7 @@ class OpenVkApp extends StatefulWidget {
     required this.client,
     this.initialAccount,
     this.navigatorKey,
+    this.initialOobeCompleted = true,
   });
 
   @override
@@ -72,18 +79,100 @@ class OpenVkApp extends StatefulWidget {
 class _OpenVkAppState extends State<OpenVkApp> {
   late final GlobalKey<NavigatorState> _navigatorKey;
   SavedAccount? _currentAccount;
+  late bool _isOobeCompleted;
+  StreamSubscription<LongPollNotificationEvent>? _longPollSub;
+  StreamSubscription<AppNotification>? _notificationTapSub;
 
   @override
   void initState() {
     super.initState();
+    _isOobeCompleted = widget.initialOobeCompleted;
     _navigatorKey = widget.navigatorKey ?? GlobalKey<NavigatorState>();
     _currentAccount = widget.initialAccount;
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+    _setupNotifications();
+  }
+
+  Future<void> _onOobeCompleted() async {
+    await AppDatabase.instance.setOobeCompleted(true);
+    if (mounted) {
+      setState(() {
+        _isOobeCompleted = true;
+      });
+    }
+  }
+
+  void _setupNotifications() {
+    NotificationDispatcher.instance.requestPermissions();
+
+    _longPollSub = widget.client.longPollService.notifications.listen((event) {
+      if (!event.isOut) {
+        NotificationDispatcher.instance.showMessageNotification(
+          peerId: event.peerId,
+          title: event.title,
+          body: event.text,
+          messageId: event.messageId,
+        );
+      }
+    });
+
+    _notificationTapSub = NotificationDispatcher.instance.onNotificationTap.listen((notification) {
+      _handleNotificationTap(notification);
+    });
+  }
+
+  void _handleNotificationTap(AppNotification notification) {
+    final peerId = notification.peerId;
+    if (peerId == null || _currentAccount == null) return;
+
+    final store = widget.client.messengerStore;
+    var conv = store.getConversationNotifier(peerId)?.value;
+    conv ??= ConversationItem(
+      peerId: peerId,
+      peerType: peerId > 2000000000 ? 'chat' : (peerId < 0 ? 'group' : 'user'),
+      inRead: 0,
+      outRead: 0,
+      unreadCount: 1,
+      isImportant: false,
+      isUnanswered: false,
+      lastMessage: Message(
+        id: notification.messageId ?? 0,
+        date: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        peerId: peerId,
+        fromId: peerId,
+        text: notification.body,
+        isOut: false,
+        isImportant: false,
+        isUnread: true,
+        attachments: const [],
+        fwdMessages: const [],
+        conversationMessageId: 0,
+        updateTime: 0,
+      ),
+    );
+
+    final nav = _navigatorKey.currentState;
+    if (nav != null) {
+      nav.push(
+        MaterialPageRoute(
+          builder: (context) => ChatConversationView(
+            client: widget.client,
+            account: _currentAccount!,
+            conversation: conv!,
+            title: store.getTitle(conv),
+            avatarUrl: store.getAvatarUrl(conv),
+            currentUserId: _currentAccount!.userId,
+          ),
+        ),
+      );
+    }
   }
 
   @override
   void dispose() {
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    _longPollSub?.cancel();
+    _notificationTapSub?.cancel();
     super.dispose();
   }
 
@@ -100,6 +189,7 @@ class _OpenVkAppState extends State<OpenVkApp> {
 
   void _onLoginSuccess() async {
     final account = await widget.authHandler.restoreSession();
+    NotificationDispatcher.instance.requestPermissions();
     setState(() {
       _currentAccount = account;
     });
@@ -136,16 +226,20 @@ class _OpenVkAppState extends State<OpenVkApp> {
           },
         ),
       },
-      home: _currentAccount == null
-          ? LoginView(
-              authHandler: widget.authHandler,
-              onLoginSuccess: _onLoginSuccess,
+      home: !_isOobeCompleted
+          ? OobeView(
+              onCompleted: _onOobeCompleted,
             )
-          : RetroHomeScreen(
-              account: _currentAccount!,
-              client: widget.client,
-              onLogout: _onLogout,
-            ),
+          : _currentAccount == null
+              ? LoginView(
+                  authHandler: widget.authHandler,
+                  onLoginSuccess: _onLoginSuccess,
+                )
+              : RetroHomeScreen(
+                  account: _currentAccount!,
+                  client: widget.client,
+                  onLogout: _onLogout,
+                ),
     );
   }
 }

@@ -86,17 +86,23 @@ class WallCountersGrid extends StatelessWidget {
       color: Colors.transparent,
       child: InkWell(
         onTap: onCounterTap != null ? () => onCounterTap!(item.keyId) : null,
-        borderRadius: BorderRadius.circular(4),
+        borderRadius: BorderRadius.circular(6),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-          alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: const Color(0xFF283645),
-            borderRadius: BorderRadius.circular(4),
+            color: const Color(0xFF1f2b38),
+            borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: const Color(0xFF1D2833),
+              color: const Color(0xFF121922),
               width: 1,
             ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x24FFFFFF),
+                offset: Offset(0, 1),
+                blurRadius: 0,
+              ),
+            ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -106,10 +112,17 @@ class WallCountersGrid extends StatelessWidget {
                 '${item.count}',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  color: Color(0xFFD4E0EC),
+                  color: Colors.white,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   letterSpacing: -0.2,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black87,
+                      offset: Offset(0, 1),
+                      blurRadius: 1,
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 2),
@@ -119,9 +132,16 @@ class WallCountersGrid extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  color: Color(0xFF7E97AF),
+                  color: Color(0xFF869EB5),
                   fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                  fontWeight: FontWeight.w600,
+                  shadows: [
+                    Shadow(
+                      color: Colors.black54,
+                      offset: Offset(0, 1),
+                      blurRadius: 0.5,
+                    ),
+                  ],
                 ),
               ),
             ],

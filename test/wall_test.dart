@@ -292,6 +292,114 @@ void main() {
 
       // Check expandable info section header
       expect(find.text('Информация'), findsOneWidget);
+
+      // On own wall, friend and message buttons must not be present
+      expect(find.text('Добавить в друзья'), findsNothing);
+      expect(find.text('Сообщение'), findsNothing);
+    });
+
+    testWidgets('WallView renders iOS 6 action buttons for other user wall', (tester) async {
+      final client = OpenVkClient();
+      const account = SavedAccount(
+        id: 1,
+        instanceId: 1,
+        userId: 100,
+        name: 'Мой Профиль',
+        avatarUrl: '',
+        accessToken: 'token',
+        isActive: true,
+      );
+
+      client.userCache.putUsers([
+        const User(
+          id: 200,
+          firstName: 'Павел',
+          lastName: 'Дуров',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+          status: 'ВКонтакте',
+          counters: UserCounters(friends: 100, photos: 50),
+        ),
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WallView(
+            client: client,
+            account: account,
+            ownerId: 200,
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Check iOS 6 friend and message action buttons are rendered
+      expect(find.text('Добавить в друзья'), findsOneWidget);
+      expect(find.text('Сообщение'), findsOneWidget);
+    });
+
+    testWidgets('WallView renders darker "В друзьях" button and shows confirmation modal on tap', (tester) async {
+      final client = OpenVkClient();
+      const account = SavedAccount(
+        id: 1,
+        instanceId: 1,
+        userId: 100,
+        name: 'Мой Профиль',
+        avatarUrl: '',
+        accessToken: 'token',
+        isActive: true,
+      );
+
+      client.userCache.putUsers([
+        const User(
+          id: 200,
+          firstName: 'Павел',
+          lastName: 'Дуров',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+          status: 'ВКонтакте',
+          counters: UserCounters(friends: 100, photos: 50),
+          friendStatus: 3,
+        ),
+      ]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: WallView(
+            client: client,
+            account: account,
+            ownerId: 200,
+          ),
+        ),
+      );
+
+      await tester.pump();
+
+      // Check "В друзьях" button is rendered
+      expect(find.text('В друзьях'), findsOneWidget);
+      expect(find.text('Сообщение'), findsOneWidget);
+
+      // Tap on "В друзьях"
+      await tester.tap(find.text('В друзьях'));
+      await tester.pumpAndSettle();
+
+      // Confirm modal dialog should open
+      expect(find.text('Удаление из друзей'), findsOneWidget);
+      expect(find.text('Вы действительно хотите удалить Павел Дуров из списка друзей?'), findsOneWidget);
+      expect(find.text('Удалить'), findsOneWidget);
+      expect(find.text('Отмена'), findsOneWidget);
+
+      // Tap 'Отмена'
+      await tester.tap(find.text('Отмена'));
+      await tester.pumpAndSettle();
+
+      // Dialog closed, still in friends
+      expect(find.text('Удаление из друзей'), findsNothing);
+      expect(find.text('В друзьях'), findsOneWidget);
     });
   });
 }
+

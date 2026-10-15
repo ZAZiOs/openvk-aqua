@@ -5,14 +5,19 @@ import 'package:flutter/material.dart';
 import '../../../core/api/auth_handler.dart';
 import '../../../core/api/openvk_client.dart';
 import '../../../core/api/wall_handler.dart';
+import '../../../core/models/conversation.dart';
+import '../../../core/models/message.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/user.dart';
+import '../../../core/utils/json_safe.dart';
 import '../../theme/retro_theme.dart';
 import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_avatar.dart';
 import '../../widgets/retro_button.dart';
+import '../../widgets/retro_ios6_dialog.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
+import '../messages/chat_conversation_view.dart';
 import 'widgets/dotted_leader_row.dart';
 import 'widgets/wall_counters_grid.dart';
 import 'widgets/wall_post_card.dart';
@@ -59,6 +64,8 @@ class _WallViewState extends State<WallView>
   String _currentFilter = 'all';
   bool _isInfoExpanded = false;
   bool _isSendingPost = false;
+  int? _friendStatus; // 0: not friend, 1: request sent, 2: incoming request, 3: friends
+  bool _isFriendActionLoading = false;
 
   int get _targetId => widget.ownerId ?? widget.account.userId;
   bool get _isMyWall => _targetId == widget.account.userId;
@@ -95,10 +102,16 @@ class _WallViewState extends State<WallView>
     if (cached != null && _hasProfileData(cached)) {
       _user = cached;
       _isLoadingProfile = false;
+      if (cached.friendStatus != null) {
+        _friendStatus = cached.friendStatus;
+      }
     }
 
     _loadUserProfile();
     _loadPosts(refresh: true);
+    if (!_isMyWall && _targetId > 0) {
+      _checkFriendStatus();
+    }
   }
 
   @override
@@ -127,14 +140,26 @@ class _WallViewState extends State<WallView>
         _user = res.dataOrNull;
         _isLoadingProfile = false;
         _profileErrorMessage = null;
+        if (_user?.friendStatus != null) {
+          _friendStatus = _user!.friendStatus;
+        }
       });
+      if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
+        _checkFriendStatus();
+      }
       // If profile was loaded from cache, silently fetch fresh data from network in background
       if (res.isFromCache && !forceRefresh) {
         unawaited(_wallHandler.getProfile(_targetId, forceRefresh: true).then((netRes) {
           if (mounted && netRes.isSuccess && netRes.dataOrNull != null) {
             setState(() {
               _user = netRes.dataOrNull;
+              if (_user?.friendStatus != null) {
+                _friendStatus = _user!.friendStatus;
+              }
             });
+            if (!_isMyWall && _targetId > 0 && _friendStatus == null) {
+              _checkFriendStatus();
+            }
           }
         }));
       }
@@ -218,6 +243,7 @@ class _WallViewState extends State<WallView>
     await Future.wait([
       _loadUserProfile(forceRefresh: true),
       _loadPosts(refresh: true, forceRefresh: true),
+      if (!_isMyWall && _targetId > 0) _checkFriendStatus(),
     ]);
   }
 
@@ -283,22 +309,13 @@ class _WallViewState extends State<WallView>
   }
 
   Future<void> _handleDeletePost(Post post) async {
-    final confirm = await showDialog<bool>(
+    final confirm = await showIos6ConfirmDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Удаление записи'),
-        content: const Text('Вы действительно хотите удалить эту запись со стены?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Отмена'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Удалить', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
+      title: 'Удаление записи',
+      message: 'Вы действительно хотите удалить эту запись со стены?',
+      cancelText: 'Отмена',
+      confirmText: 'Удалить',
+      isDestructive: true,
     );
 
     if (confirm != true) return;
@@ -333,6 +350,283 @@ class _WallViewState extends State<WallView>
     _loadPosts(refresh: true);
   }
 
+  Future<void> _checkFriendStatus() async {
+    if (_isMyWall || _targetId <= 0) return;
+    try {
+      final res = await widget.client.call<dynamic>(
+        'friends.areFriends',
+        params: {'user_ids': _targetId.toString()},
+        parser: (json) => json,
+      );
+      if (!mounted) return;
+      if (res.isSuccess && res.dataOrNull != null) {
+        final data = res.dataOrNull;
+        int? status;
+        if (data is List && data.isNotEmpty) {
+          final item = data.first;
+          if (item is Map) {
+            status = JsonSafe.toInt(item['friend_status']);
+          }
+        } else if (data is Map) {
+          status = JsonSafe.toInt(data['friend_status']);
+        }
+        if (status != null) {
+          setState(() => _friendStatus = status);
+          return;
+        }
+      }
+    } catch (e) {
+      debugPrint('[WallView] friends.areFriends error: $e');
+    }
+
+    // Fallback: check if _targetId is in current account's friends list
+    try {
+      final res = await widget.client.call<dynamic>(
+        'friends.get',
+        params: {
+          'user_id': widget.account.userId.toString(),
+          'count': '5000',
+        },
+        parser: (json) => json,
+      );
+      if (!mounted) return;
+      if (res.isSuccess && res.dataOrNull != null) {
+        final data = res.dataOrNull;
+        List items = [];
+        if (data is List) {
+          items = data;
+        } else if (data is Map && data['items'] is List) {
+          items = data['items'] as List;
+        }
+        final isFriend = items.any((id) {
+          if (id is int) return id == _targetId;
+          if (id is Map) return JsonSafe.toInt(id['id'] ?? id['user_id'] ?? id['uid']) == _targetId;
+          return int.tryParse(id.toString()) == _targetId;
+        });
+        if (isFriend) {
+          setState(() => _friendStatus = 3);
+        }
+      }
+    } catch (e) {
+      debugPrint('[WallView] friends.get fallback error: $e');
+    }
+  }
+
+  String _getFriendButtonText() {
+    switch (_friendStatus) {
+      case 3:
+        return 'В друзьях';
+      case 1:
+        return 'Заявка отправлена';
+      case 2:
+        return 'Принять заявку';
+      default:
+        return 'Добавить в друзья';
+    }
+  }
+
+  Future<void> _handleFriendButtonPressed() async {
+    if (_isFriendActionLoading) return;
+
+    final status = _friendStatus ?? 0;
+
+    // Already friends (status == 3): show modal confirm dialog to delete friend
+    if (status == 3) {
+      final userName = _user?.fullName.isNotEmpty == true ? _user!.fullName : 'пользователя';
+      final confirmed = await showIos6ConfirmDialog(
+        context: context,
+        title: 'Удаление из друзей',
+        message: 'Вы действительно хотите удалить $userName из списка друзей?',
+        cancelText: 'Отмена',
+        confirmText: 'Удалить',
+        isDestructive: true,
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      setState(() => _isFriendActionLoading = true);
+      try {
+        final res = await widget.client.call<dynamic>(
+          'friends.delete',
+          params: {'user_id': _targetId.toString()},
+          parser: (json) => json,
+        );
+        if (!mounted) return;
+        if (res.isSuccess) {
+          setState(() => _friendStatus = 0);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Пользователь удален из друзей'),
+              backgroundColor: Color(0xFF2E3E50),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.errorOrNull?.message ?? 'Не удалось удалить из друзей'),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _isFriendActionLoading = false);
+        }
+      }
+      return;
+    }
+
+    // Friend request already sent (status == 1): confirmation dialog to cancel request
+    if (status == 1) {
+      final confirmed = await showIos6ConfirmDialog(
+        context: context,
+        title: 'Отмена заявки',
+        message: 'Вы действительно хотите отменить заявку в друзья?',
+        cancelText: 'Назад',
+        confirmText: 'Отменить заявку',
+        isDestructive: true,
+      );
+
+      if (confirmed != true || !mounted) return;
+
+      setState(() => _isFriendActionLoading = true);
+      try {
+        final res = await widget.client.call<dynamic>(
+          'friends.delete',
+          params: {'user_id': _targetId.toString()},
+          parser: (json) => json,
+        );
+        if (!mounted) return;
+        if (res.isSuccess) {
+          setState(() => _friendStatus = 0);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Заявка в друзья отменена'),
+              backgroundColor: Color(0xFF2E3E50),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(res.errorOrNull?.message ?? 'Не удалось отменить заявку'),
+              backgroundColor: Colors.red.shade800,
+            ),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Ошибка: $e'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      } finally {
+        if (mounted) {
+          setState(() => _isFriendActionLoading = false);
+        }
+      }
+      return;
+    }
+
+    // Not friends (status == 0) or incoming request (status == 2): send/accept friend request
+    setState(() => _isFriendActionLoading = true);
+    try {
+      final res = await widget.client.call<dynamic>(
+        'friends.add',
+        params: {
+          'user_id': _targetId.toString(),
+        },
+        parser: (json) => json,
+      );
+      if (!mounted) return;
+      if (res.isSuccess) {
+        final code = JsonSafe.toInt(res.dataOrNull);
+        final newStatus = (code == 2) ? 3 : 1;
+        setState(() => _friendStatus = newStatus);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newStatus == 3
+                  ? 'Пользователь добавлен в друзья'
+                  : 'Заявка в друзья отправлена',
+            ),
+            backgroundColor: const Color(0xFF2E3E50),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(res.errorOrNull?.message ?? 'Не удалось отправить заявку в друзья'),
+            backgroundColor: Colors.red.shade800,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Ошибка: $e'),
+          backgroundColor: Colors.red.shade800,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isFriendActionLoading = false);
+      }
+    }
+  }
+
+  void _openChatWithUser() {
+    final title = _user?.fullName.isNotEmpty == true
+        ? _user!.fullName
+        : 'Пользователь';
+    final avatarUrl = _user?.avatarUrl;
+    final item = ConversationItem(
+      peerId: _targetId,
+      peerType: _targetId < 0 ? 'group' : 'user',
+      inRead: 0,
+      outRead: 0,
+      unreadCount: 0,
+      isImportant: false,
+      isUnanswered: false,
+      lastMessage: Message(
+        id: 0,
+        date: 0,
+        peerId: _targetId,
+        fromId: widget.account.userId,
+        text: '',
+        isOut: false,
+        isImportant: false,
+        attachments: const [],
+        fwdMessages: const [],
+        conversationMessageId: 0,
+        updateTime: 0,
+      ),
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ChatConversationView(
+          client: widget.client,
+          account: widget.account,
+          conversation: item,
+          title: title,
+          avatarUrl: avatarUrl,
+          currentUserId: widget.account.userId,
+        ),
+      ),
+    );
+  }
+
   void _openUserProfile(int userId) {
     if (userId <= 0) return;
     if (userId == _targetId) return;
@@ -354,7 +648,7 @@ class _WallViewState extends State<WallView>
 
     if (_user == null) {
       return Scaffold(
-        backgroundColor: const Color(0xFFD3DBE3),
+        backgroundColor: const Color(0xFF243242),
         appBar: canPop
             ? const RetroAppBar(
                 showBackButton: true,
@@ -371,9 +665,15 @@ class _WallViewState extends State<WallView>
                     Text(
                       'Загрузка страницы...',
                       style: TextStyle(
-                        color: RetroTheme.textSecondary,
+                        color: Color(0xFFCAD8E6),
                         fontSize: 14,
-                        fontWeight: FontWeight.w500,
+                        fontWeight: FontWeight.w600,
+                        shadows: [
+                          Shadow(
+                            color: Colors.black,
+                            offset: Offset(0, -1),
+                          ),
+                        ],
                       ),
                     ),
                   ],
@@ -387,8 +687,15 @@ class _WallViewState extends State<WallView>
                         _profileErrorMessage ?? 'Не удалось загрузить страницу',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
-                          color: RetroTheme.textSecondary,
+                          color: Color(0xFFCAD8E6),
                           fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              offset: Offset(0, -1),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -413,7 +720,7 @@ class _WallViewState extends State<WallView>
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFFD3DBE3),
+      backgroundColor: const Color(0xFFCBD2D8),
       appBar: canPop
           ? RetroAppBar(
               showBackButton: true,
@@ -422,24 +729,24 @@ class _WallViewState extends State<WallView>
           : null,
       body: RetroPullToRefresh(
         onRefresh: _handleRefresh,
-        backgroundColor: const Color(0xFF344454),
-        contentColor: const Color(0xFFCAD7E5),
-        arrowColor: const Color(0xFFB5C8DB),
+        backgroundColor: const Color(0xFF283647),
+        contentColor: const Color(0xFFCAD8E6),
+        arrowColor: const Color(0xFF8BA5BE),
         child: CustomScrollView(
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            // Dark Profile Card Container
+            // Dark Denim Profile Card Container
             SliverToBoxAdapter(
               child: _buildProfileHeaderCard(),
             ),
 
-            // Full-width "Информация" Section
+            // Denim "Информация" Section
             SliverToBoxAdapter(
               child: _buildInfoSection(_user),
             ),
 
-            // Metallic Composer Bar with Filter Pills
+            // Denim Composer Bar with Segmented Pills
             SliverToBoxAdapter(
               child: _buildComposerAndFilters(),
             ),
@@ -498,7 +805,27 @@ class _WallViewState extends State<WallView>
     final isOnline = user?.isOnline ?? false;
 
     return Container(
-      color: const Color(0xFF344454),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFF35465A),
+            Color(0xFF283647),
+          ],
+        ),
+        border: Border(
+          top: BorderSide(color: Color(0x30FFFFFF), width: 1),
+          bottom: BorderSide(color: Color(0xFF1B2430), width: 1),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x35000000),
+            offset: Offset(0, 2),
+            blurRadius: 3,
+          ),
+        ],
+      ),
       padding: const EdgeInsets.fromLTRB(14, 16, 14, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -507,20 +834,27 @@ class _WallViewState extends State<WallView>
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Avatar with dark retro frame
+              // Avatar with iOS 6 squircle photo frame
               Container(
                 decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(5),
+                  borderRadius: BorderRadius.circular(9),
                   border: Border.all(
-                    color: const Color(0xFF192533),
-                    width: 1,
+                    color: Colors.white,
+                    width: 2.5,
                   ),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x60000000),
+                      offset: Offset(0, 2),
+                      blurRadius: 4,
+                    ),
+                  ],
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
+                  borderRadius: BorderRadius.circular(6.5),
                   child: RetroAvatar(
                     url: avatarUrl,
-                    size: 84,
+                    size: 80,
                     fallbackText: name.isNotEmpty ? name[0].toUpperCase() : '?',
                   ),
                 ),
@@ -542,6 +876,13 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              offset: Offset(0, 1),
+                              blurRadius: 1,
+                            ),
+                          ],
                         ),
                       ),
                       Text(
@@ -552,6 +893,13 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              offset: Offset(0, 1),
+                              blurRadius: 1,
+                            ),
+                          ],
                         ),
                       ),
                     ] else ...[
@@ -563,6 +911,13 @@ class _WallViewState extends State<WallView>
                           fontWeight: FontWeight.bold,
                           letterSpacing: -0.2,
                           height: 1.15,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black,
+                              offset: Offset(0, 1),
+                              blurRadius: 1,
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -574,32 +929,61 @@ class _WallViewState extends State<WallView>
                       Text(
                         status,
                         style: const TextStyle(
-                          color: Color(0xFF8BA2B8),
+                          color: Color(0xFF90A8C0),
                           fontSize: 13.5,
-                          fontStyle: FontStyle.normal,
+                          fontStyle: FontStyle.italic,
+                          shadows: [
+                            Shadow(
+                              color: Colors.black87,
+                              offset: Offset(0, 1),
+                              blurRadius: 1,
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 6),
                     ],
 
-                    // Online indicator
+                    // Online indicator pill
                     Row(
                       children: [
                         Container(
-                          width: 8,
-                          height: 8,
+                          width: 9,
+                          height: 9,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: isOnline ? const Color(0xFF4CD964) : const Color(0xFF6B8096),
+                            gradient: RadialGradient(
+                              colors: isOnline
+                                  ? const [Color(0xFF6DE86D), Color(0xFF299929)]
+                                  : const [Color(0xFF8B9BAE), Color(0xFF556475)],
+                            ),
+                            border: Border.all(
+                              color: isOnline ? const Color(0xFF1B6B1B) : const Color(0xFF3D4956),
+                              width: 0.8,
+                            ),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x40000000),
+                                offset: Offset(0, 1),
+                                blurRadius: 1,
+                              ),
+                            ],
                           ),
                         ),
-                        const SizedBox(width: 7),
+                        const SizedBox(width: 6),
                         Text(
                           isOnline ? 'Онлайн' : 'Не в сети',
                           style: TextStyle(
-                            color: isOnline ? const Color(0xFF7E97AF) : const Color(0xFF6E849A),
+                            color: isOnline ? const Color(0xFF7EBF88) : const Color(0xFF869DB3),
                             fontSize: 12.5,
-                            fontWeight: FontWeight.w500,
+                            fontWeight: FontWeight.w600,
+                            shadows: const [
+                              Shadow(
+                                color: Colors.black,
+                                offset: Offset(0, 1),
+                                blurRadius: 1,
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -612,11 +996,36 @@ class _WallViewState extends State<WallView>
 
           const SizedBox(height: 14),
 
-          // 2x3 Counters Grid
+          // 2x3 Counters Grid (with inner shadow wells!)
           WallCountersGrid(
             counters: user?.counters ?? const UserCounters(),
             onCounterTap: (key) {},
           ),
+
+          if (!_isMyWall && _targetId > 0) ...[
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _Ios6ProfileActionButton(
+                    text: _getFriendButtonText(),
+                    isBlue: true,
+                    isDark: _friendStatus == 3 || _friendStatus == 1,
+                    isLoading: _isFriendActionLoading,
+                    onPressed: _handleFriendButtonPressed,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _Ios6ProfileActionButton(
+                    text: 'Сообщение',
+                    isBlue: false,
+                    onPressed: _openChatWithUser,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -645,7 +1054,7 @@ class _WallViewState extends State<WallView>
 
     return Column(
       children: [
-        // Full-width Header Strip
+        // Denim Grouped Bar Strip Header
         Material(
           color: Colors.transparent,
           child: InkWell(
@@ -660,16 +1069,18 @@ class _WallViewState extends State<WallView>
               });
             },
             child: Container(
-              decoration: BoxDecoration(
-                color: const Color(0xFF304050),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF2E3E50),
+                    Color(0xFF243140),
+                  ],
+                ),
                 border: Border(
-                  top: const BorderSide(color: Color(0xFF283644), width: 1),
-                  bottom: BorderSide(
-                    color: _isInfoExpanded
-                        ? const Color(0xFF263544)
-                        : const Color(0xFF202C38),
-                    width: 1,
-                  ),
+                  top: BorderSide(color: Color(0x28FFFFFF), width: 1),
+                  bottom: BorderSide(color: Color(0xFF19222C), width: 1),
                 ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -678,9 +1089,16 @@ class _WallViewState extends State<WallView>
                   const Text(
                     'Информация',
                     style: TextStyle(
-                      color: Color(0xFF8EA4BA),
+                      color: Color(0xFF9CB2C7),
                       fontSize: 14.5,
                       fontWeight: FontWeight.bold,
+                      shadows: [
+                        Shadow(
+                          color: Colors.black87,
+                          offset: Offset(0, 1),
+                          blurRadius: 1,
+                        ),
+                      ],
                     ),
                   ),
                   const Spacer(),
@@ -690,7 +1108,7 @@ class _WallViewState extends State<WallView>
                     curve: Curves.fastOutSlowIn,
                     child: const Icon(
                       Icons.keyboard_arrow_down,
-                      color: Color(0xFF8EA4BA),
+                      color: Color(0xFF869EB5),
                       size: 20,
                     ),
                   ),
@@ -700,7 +1118,7 @@ class _WallViewState extends State<WallView>
           ),
         ),
 
-        // Animated expandable container stretching downward
+        // Animated expandable container
         ClipRect(
           child: SizeTransition(
             sizeFactor: _infoHeightFactor,
@@ -709,12 +1127,12 @@ class _WallViewState extends State<WallView>
                 ? Container(
                     width: double.infinity,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF304050),
+                      color: Color(0xFF1F2A37),
                       border: Border(
-                        bottom: BorderSide(color: Color(0xFF223040), width: 1),
+                        bottom: BorderSide(color: Color(0xFF161E28), width: 1),
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+                    padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -769,12 +1187,19 @@ class _WallViewState extends State<WallView>
   Widget _buildInfoCard({required List<Widget> children}) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0xFF263340),
-        borderRadius: BorderRadius.circular(4),
+        color: const Color(0xFF18222D),
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(
-          color: const Color(0xFF1C2731),
+          color: const Color(0xFF121922),
           width: 1,
         ),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x24FFFFFF),
+            offset: Offset(0, 1),
+            blurRadius: 0,
+          ),
+        ],
       ),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       child: Column(
@@ -798,8 +1223,15 @@ class _WallViewState extends State<WallView>
               style: const TextStyle(
                 fontSize: 12.5,
                 color: Color(0xFF869EB5),
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w600,
                 height: 1.3,
+                shadows: [
+                  Shadow(
+                    color: Colors.black54,
+                    offset: Offset(0, 1),
+                    blurRadius: 0.5,
+                  ),
+                ],
               ),
             ),
           ),
@@ -811,6 +1243,13 @@ class _WallViewState extends State<WallView>
                 fontSize: 12.5,
                 color: Color(0xFFCAD7E5),
                 height: 1.3,
+                shadows: [
+                  Shadow(
+                    color: Colors.black54,
+                    offset: Offset(0, 1),
+                    blurRadius: 0.5,
+                  ),
+                ],
               ),
             ),
           ),
@@ -822,17 +1261,31 @@ class _WallViewState extends State<WallView>
   Widget _buildComposerAndFilters() {
     return Container(
       decoration: const BoxDecoration(
-        color: Color(0xFFE2E7ED),
-        border: Border(
-          top: BorderSide(color: Color(0xFFB0BDCA), width: 1),
-          bottom: BorderSide(color: Color(0xFF98A6B4), width: 1),
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFF7F8FA),
+            Color(0xFFD6DBE2),
+          ],
         ),
+        border: Border(
+          top: BorderSide(color: Color(0xFF19232F), width: 1),
+          bottom: BorderSide(color: Color(0xFFA5B0BE), width: 1),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x14000000),
+            offset: Offset(0, 1.5),
+            blurRadius: 2,
+          ),
+        ],
       ),
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Filter Pills: "Все записи" / "Мои записи" (или "Записи автора")
+          // Filter Pills: "Все записи" / "Мои записи"
           Row(
             children: [
               _buildFilterPill('all', 'Все записи'),
@@ -846,7 +1299,7 @@ class _WallViewState extends State<WallView>
 
           const SizedBox(height: 10),
 
-          // Post Input Bar: [+] [Что нового? / Написать на стене...  ] [->]
+          // Post Input Bar: [+] [Что нового? / Написать на стене... ] [->]
           Row(
             children: [
               // (+) attachment button
@@ -856,20 +1309,34 @@ class _WallViewState extends State<WallView>
                   onTap: () {
                     // Attachment picker
                   },
-                  borderRadius: BorderRadius.circular(17),
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 34,
-                    height: 34,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFFA5B4C4),
-                      border: Border.all(color: const Color(0xFF768797), width: 1),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFFFAFBFC),
+                          Color(0xFFD3D8E0),
+                        ],
+                      ),
+                      border: Border.all(color: const Color(0xFF9AA4B0), width: 1),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x18000000),
+                          offset: Offset(0, 1),
+                          blurRadius: 1,
+                        ),
+                      ],
                     ),
                     child: const Center(
                       child: Icon(
                         Icons.add,
-                        color: Colors.white,
-                        size: 22,
+                        color: Color(0xFF455566),
+                        size: 20,
                       ),
                     ),
                   ),
@@ -877,14 +1344,21 @@ class _WallViewState extends State<WallView>
               ),
               const SizedBox(width: 8),
 
-              // Input field
+              // Input field (search/text bar capsule)
               Expanded(
                 child: Container(
-                  height: 34,
+                  height: 32,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(17),
-                    border: Border.all(color: const Color(0xFFA2B0BF), width: 1),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: const Color(0xFFA5B0BD), width: 1),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x15000000),
+                        offset: Offset(0, 1),
+                        blurRadius: 1.5,
+                      ),
+                    ],
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   alignment: Alignment.center,
@@ -896,8 +1370,8 @@ class _WallViewState extends State<WallView>
                     decoration: InputDecoration(
                       hintText: _isMyWall ? 'Что нового?' : 'Написать на стене...',
                       hintStyle: const TextStyle(
-                        color: Color(0xFF8899AA),
-                        fontSize: 13.5,
+                        color: Color(0xFF8696A8),
+                        fontSize: 13,
                       ),
                       isDense: true,
                       border: InputBorder.none,
@@ -908,27 +1382,41 @@ class _WallViewState extends State<WallView>
               ),
               const SizedBox(width: 8),
 
-              // (->) Send button
+              // (->) Send button (glossy iOS 6 blue button)
               Material(
                 color: Colors.transparent,
                 child: InkWell(
                   onTap: _isSendingPost ? null : _submitPost,
-                  borderRadius: BorderRadius.circular(17),
+                  borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    width: 34,
-                    height: 34,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: const Color(0xFF3E75BA),
-                      border: Border.all(color: const Color(0xFF265692), width: 1),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Color(0xFF4A8BE2),
+                          Color(0xFF1B599E),
+                        ],
+                      ),
+                      border: Border.all(color: const Color(0xFF144073), width: 1),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x28000000),
+                          offset: Offset(0, 1),
+                          blurRadius: 1.5,
+                        ),
+                      ],
                     ),
                     child: Center(
                       child: _isSendingPost
-                          ? const RetroLoadingIndicator(size: 16)
+                          ? const RetroLoadingIndicator(size: 15)
                           : const Icon(
                               Icons.arrow_forward,
                               color: Colors.white,
-                              size: 18,
+                              size: 17,
                             ),
                     ),
                   ),
@@ -944,6 +1432,14 @@ class _WallViewState extends State<WallView>
   Widget _buildFilterPill(String filterKey, String label) {
     final isSelected = _currentFilter == filterKey;
 
+    final gradientColors = isSelected
+        ? const [Color(0xFF4C8CD6), Color(0xFF1E5899)]
+        : const [Color(0xFFFFFFFF), Color(0xFFE5E9EE)];
+
+    final borderColor = isSelected
+        ? const Color(0xFF163E6D)
+        : const Color(0xFFB5BDC8);
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -952,23 +1448,37 @@ class _WallViewState extends State<WallView>
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
           decoration: BoxDecoration(
-            color: isSelected
-                ? const Color(0xFF8B9CAB)
-                : const Color(0xFFD8DFE7),
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: gradientColors,
+            ),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isSelected
-                  ? const Color(0xFF6E7F8E)
-                  : const Color(0xFFA5B3C1),
+              color: borderColor,
               width: 1,
             ),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                offset: Offset(0, 1),
+                blurRadius: 1,
+              ),
+            ],
           ),
           child: Text(
             label,
             style: TextStyle(
               fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              color: isSelected ? Colors.white : const Color(0xFF455565),
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+              color: isSelected ? Colors.white : const Color(0xFF384656),
+              shadows: [
+                Shadow(
+                  color: isSelected ? const Color(0x99000000) : Colors.white,
+                  offset: isSelected ? const Offset(0, -1) : const Offset(0, 1),
+                  blurRadius: 0,
+                ),
+              ],
             ),
           ),
         ),
@@ -982,10 +1492,10 @@ class _WallViewState extends State<WallView>
       alignment: Alignment.center,
       child: Column(
         children: [
-          Icon(
+          const Icon(
             Icons.article_outlined,
             size: 48,
-            color: Colors.grey.shade400,
+            color: Color(0xFF8E9BA8),
           ),
           const SizedBox(height: 12),
           Text(
@@ -993,12 +1503,221 @@ class _WallViewState extends State<WallView>
                 ? 'На стене пока нет записей автора'
                 : 'На стене пока нет записей',
             style: const TextStyle(
-              color: Color(0xFF7A8B9C),
+              color: Color(0xFF5D6B7A),
               fontSize: 14,
               fontWeight: FontWeight.w500,
+              shadows: [
+                Shadow(
+                  color: Colors.white,
+                  offset: Offset(0, 1),
+                  blurRadius: 0,
+                ),
+              ],
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _Ios6ProfileActionButton extends StatefulWidget {
+  final String text;
+  final bool isBlue;
+  final bool isDark;
+  final bool isLoading;
+  final VoidCallback? onPressed;
+
+  const _Ios6ProfileActionButton({
+    required this.text,
+    required this.isBlue,
+    this.isDark = false,
+    this.isLoading = false,
+    this.onPressed,
+  });
+
+  @override
+  State<_Ios6ProfileActionButton> createState() => _Ios6ProfileActionButtonState();
+}
+
+class _Ios6ProfileActionButtonState extends State<_Ios6ProfileActionButton> {
+  bool _isPressed = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final isBlue = widget.isBlue;
+    final isDark = widget.isDark;
+    final isPressed = _isPressed && !widget.isLoading && widget.onPressed != null;
+
+    final List<Color> gradientColors;
+    final Color borderColor;
+    final Color textColor;
+    final List<Shadow> textShadows;
+
+    if (isBlue) {
+      if (isDark) {
+        if (isPressed) {
+          gradientColors = const [
+            Color(0xFF162331),
+            Color(0xFF1E2E40),
+            Color(0xFF15222E),
+            Color(0xFF0D1720),
+          ];
+        } else {
+          gradientColors = const [
+            Color(0xFF384F69),
+            Color(0xFF26384C),
+            Color(0xFF1C2B3B),
+            Color(0xFF131E29),
+          ];
+        }
+        borderColor = const Color(0xFF0E1620);
+        textColor = const Color(0xFFE4EDF7);
+        textShadows = const [
+          Shadow(
+            color: Color(0xDD000000),
+            offset: Offset(0, -1),
+            blurRadius: 0.5,
+          ),
+        ];
+      } else {
+        if (isPressed) {
+          gradientColors = const [
+            Color(0xFF245082),
+            Color(0xFF336CA7),
+            Color(0xFF24558B),
+            Color(0xFF1B416D),
+          ];
+        } else {
+          gradientColors = const [
+            Color(0xFF7CAAE4),
+            Color(0xFF4C8CD6),
+            Color(0xFF2F76C4),
+            Color(0xFF205B9E),
+          ];
+        }
+        borderColor = const Color(0xFF143B66);
+        textColor = Colors.white;
+        textShadows = const [
+          Shadow(
+            color: Color(0x99000000),
+            offset: Offset(0, -1),
+            blurRadius: 0.5,
+          ),
+        ];
+      }
+    } else {
+      if (isPressed) {
+        gradientColors = const [
+          Color(0xFFBFC6CF),
+          Color(0xFFCDD4DE),
+          Color(0xFFC2C9D3),
+          Color(0xFFB0B7C2),
+        ];
+      } else {
+        gradientColors = const [
+          Color(0xFFFFFFFF),
+          Color(0xFFEEF1F5),
+          Color(0xFFDFE4EB),
+          Color(0xFFCED4DC),
+        ];
+      }
+      borderColor = const Color(0xFF627182);
+      textColor = const Color(0xFF202A35);
+      textShadows = const [
+        Shadow(
+          color: Colors.white,
+          offset: Offset(0, 1),
+          blurRadius: 0,
+        ),
+      ];
+    }
+
+    return GestureDetector(
+      onTapDown: (_) {
+        if (widget.onPressed != null && !widget.isLoading) {
+          setState(() => _isPressed = true);
+        }
+      },
+      onTapUp: (_) {
+        if (_isPressed) {
+          setState(() => _isPressed = false);
+          widget.onPressed?.call();
+        }
+      },
+      onTapCancel: () {
+        if (_isPressed) {
+          setState(() => _isPressed = false);
+        }
+      },
+      child: Container(
+        height: 38,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: borderColor, width: 1),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const [0.0, 0.49, 0.50, 1.0],
+            colors: gradientColors,
+          ),
+          boxShadow: [
+            const BoxShadow(
+              color: Color(0x35FFFFFF),
+              offset: Offset(0, 1),
+              blurRadius: 0,
+            ),
+            BoxShadow(
+              color: const Color(0x30000000),
+              offset: isPressed ? const Offset(0, 0.5) : const Offset(0, 1.5),
+              blurRadius: isPressed ? 1 : 2,
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(5),
+          child: Stack(
+            children: [
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 1,
+                child: Container(
+                  color: isBlue
+                      ? (isDark ? const Color(0x35FFFFFF) : const Color(0x70FFFFFF))
+                      : const Color(0xAAFFFFFF),
+                ),
+              ),
+              Center(
+                child: widget.isLoading
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isBlue ? Colors.white : const Color(0xFF202A35),
+                          ),
+                        ),
+                      )
+                    : Text(
+                        widget.text,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: textColor,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                          shadows: textShadows,
+                        ),
+                      ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
