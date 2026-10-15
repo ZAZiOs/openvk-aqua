@@ -55,6 +55,7 @@ class PhotoAttachment {
   final String url;
   final int width;
   final int height;
+  final String text;
 
   const PhotoAttachment({
     required this.id,
@@ -62,6 +63,7 @@ class PhotoAttachment {
     required this.url,
     required this.width,
     required this.height,
+    this.text = '',
   });
 
   factory PhotoAttachment.fromJson(Map<String, dynamic> json) {
@@ -71,16 +73,43 @@ class PhotoAttachment {
 
     final sizes = JsonSafe.toList(json['sizes'], (s) => JsonSafe.toMap(s));
     if (sizes.isNotEmpty) {
-      final bestSize = sizes.last;
-      bestUrl = JsonSafe.toStr(bestSize['url']);
-      w = JsonSafe.toInt(bestSize['width']);
-      h = JsonSafe.toInt(bestSize['height']);
-    } else {
-      bestUrl = JsonSafe.toStr(
-        json['photo_604'] ?? json['photo_130'] ?? json['photo_75'],
-      );
+      for (final s in sizes) {
+        final u = JsonSafe.toStr(s['url'] ?? s['src']);
+        final sw = JsonSafe.toInt(s['width']);
+        final sh = JsonSafe.toInt(s['height']);
+        if (u.isNotEmpty && (bestUrl.isEmpty || (sw * sh) >= (w * h))) {
+          bestUrl = u;
+          w = sw;
+          h = sh;
+        }
+      }
+    }
+
+    if (bestUrl.isEmpty) {
+      for (final key in [
+        'photo_2560',
+        'photo_1280',
+        'photo_807',
+        'photo_604',
+        'photo_320',
+        'photo_130',
+        'photo_75',
+      ]) {
+        final val = json[key];
+        if (val is String && val.trim().isNotEmpty) {
+          bestUrl = val.trim();
+          break;
+        }
+      }
       w = JsonSafe.toInt(json['width']);
       h = JsonSafe.toInt(json['height']);
+    }
+
+    if (bestUrl.contains(r'\/')) {
+      bestUrl = bestUrl.replaceAll(r'\/', '/');
+    }
+    if (bestUrl.startsWith('//')) {
+      bestUrl = 'https:$bestUrl';
     }
 
     return PhotoAttachment(
@@ -89,6 +118,7 @@ class PhotoAttachment {
       url: bestUrl,
       width: w,
       height: h,
+      text: JsonSafe.toStr(json['text']),
     );
   }
 }
@@ -128,6 +158,9 @@ class VideoAttachment {
   final String title;
   final int duration;
   final String photoUrl;
+  final String description;
+  final String playerUrl;
+  final String? directVideoUrl;
 
   const VideoAttachment({
     required this.id,
@@ -135,16 +168,130 @@ class VideoAttachment {
     required this.title,
     required this.duration,
     required this.photoUrl,
+    this.description = '',
+    this.playerUrl = '',
+    this.directVideoUrl,
   });
 
   factory VideoAttachment.fromJson(Map<String, dynamic> json) {
+    String? direct;
+    final files = json['files'];
+    if (files is Map) {
+      direct = JsonSafe.toStr(
+        files['mp4_1080'] ??
+            files['mp4_720'] ??
+            files['mp4_480'] ??
+            files['mp4_360'] ??
+            files['mp4_240'] ??
+            files['external'],
+      );
+      if (direct.isEmpty) direct = null;
+    }
+
+    final photoUrl = _extractBestVideoThumbnail(json);
+
     return VideoAttachment(
       id: JsonSafe.toInt(json['id']),
       ownerId: JsonSafe.toInt(json['owner_id']),
       title: JsonSafe.toStr(json['title'], 'Видеозапись'),
       duration: JsonSafe.toInt(json['duration']),
-      photoUrl: JsonSafe.toStr(json['photo_320'] ?? json['photo_130']),
+      photoUrl: photoUrl,
+      description: JsonSafe.toStr(json['description']),
+      playerUrl: JsonSafe.toStr(json['player']),
+      directVideoUrl: direct,
     );
+  }
+
+  static String _extractBestVideoThumbnail(Map<String, dynamic> json) {
+    // 1. Check array of sizes in 'image' (modern VK / OpenVK standard)
+    final imageList = json['image'];
+    if (imageList is List && imageList.isNotEmpty) {
+      final best = _findBestSizeUrl(imageList);
+      if (best.isNotEmpty) return _cleanUrl(best);
+    } else if (imageList is String && imageList.trim().isNotEmpty) {
+      return _cleanUrl(imageList.trim());
+    }
+
+    // 2. Check array of sizes in 'first_frame'
+    final firstFrame = json['first_frame'];
+    if (firstFrame is List && firstFrame.isNotEmpty) {
+      final best = _findBestSizeUrl(firstFrame);
+      if (best.isNotEmpty) return _cleanUrl(best);
+    } else if (firstFrame is String && firstFrame.trim().isNotEmpty) {
+      return _cleanUrl(firstFrame.trim());
+    }
+
+    // 3. Check array of sizes in 'sizes'
+    final sizesList = json['sizes'];
+    if (sizesList is List && sizesList.isNotEmpty) {
+      final best = _findBestSizeUrl(sizesList);
+      if (best.isNotEmpty) return _cleanUrl(best);
+    }
+
+    // 4. Check explicit photo and thumb keys in order of quality
+    for (final key in [
+      'photo_1280',
+      'photo_800',
+      'photo_640',
+      'photo_320',
+      'photo_160',
+      'photo_130',
+      'photo_75',
+      'first_frame_1280',
+      'first_frame_800',
+      'first_frame_640',
+      'first_frame_320',
+      'first_frame_160',
+      'first_frame_130',
+      'thumb',
+      'thumb_src',
+      'thumb_256',
+      'preview',
+      'preview_url',
+      'image_url',
+    ]) {
+      final val = json[key];
+      if (val is String && val.trim().isNotEmpty) {
+        return _cleanUrl(val.trim());
+      }
+    }
+
+    return '';
+  }
+
+  static String _findBestSizeUrl(List list) {
+    String candidate = '';
+    int maxDimension = 0;
+
+    for (final item in list) {
+      if (item is Map) {
+        final url = JsonSafe.toStr(item['url'] ?? item['src'] ?? item['link']);
+        final w = JsonSafe.toInt(item['width']);
+        final h = JsonSafe.toInt(item['height']);
+        final dim = (w > h) ? w : h;
+        if (url.isNotEmpty) {
+          if (candidate.isEmpty || dim >= maxDimension) {
+            candidate = url;
+            maxDimension = dim;
+          }
+        }
+      } else if (item is String && item.isNotEmpty) {
+        candidate = item;
+      }
+    }
+
+    return candidate;
+  }
+
+  static String _cleanUrl(String rawUrl) {
+    var url = rawUrl.trim();
+    if (url.contains(r'\/')) {
+      url = url.replaceAll(r'\/', '/');
+    }
+    if (url.startsWith('//')) {
+      url = 'https:$url';
+    }
+    return url;
   }
 }
 

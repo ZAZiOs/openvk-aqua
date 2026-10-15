@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/attachment.dart';
 import '../theme/retro_theme.dart';
 import 'retro_loading_indicator.dart';
+import 'retro_media_viewer.dart';
 
 /// Reusable retro attachment grid for messages, wall posts, and comments.
 /// Renders photos and videos in a harmonious mosaic grid, and audios/docs as clean rows.
@@ -188,7 +189,7 @@ class RetroAttachmentGrid extends StatelessWidget {
       width: 140,
       height: 140,
       fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => Container(
+      errorBuilder: (context, error, stackTrace) => Container(
         width: 120,
         height: 120,
         alignment: Alignment.center,
@@ -204,7 +205,7 @@ class RetroAttachmentGrid extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: switch (items.length) {
-        1 => _buildSingleMedia(context, items[0], 0),
+        1 => _buildSingleMedia(context, items),
         2 => _buildTwoMedia(context, items),
         3 => _buildThreeMedia(context, items),
         4 => _buildFourMedia(context, items),
@@ -213,7 +214,8 @@ class RetroAttachmentGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildSingleMedia(BuildContext context, Attachment item, int index) {
+  Widget _buildSingleMedia(BuildContext context, List<Attachment> items) {
+    final item = items[0];
     double aspectRatio = 16 / 9;
     if (item.type == 'photo' && item.photo != null) {
       final p = item.photo!;
@@ -226,7 +228,7 @@ class RetroAttachmentGrid extends StatelessWidget {
       constraints: const BoxConstraints(maxHeight: 280),
       child: AspectRatio(
         aspectRatio: aspectRatio,
-        child: _buildMediaCell(context, item, index),
+        child: _buildMediaCell(context, items, 0),
       ),
     );
   }
@@ -236,9 +238,9 @@ class RetroAttachmentGrid extends StatelessWidget {
       height: 180,
       child: Row(
         children: [
-          Expanded(child: _buildMediaCell(context, items[0], 0)),
+          Expanded(child: _buildMediaCell(context, items, 0)),
           const SizedBox(width: 4),
-          Expanded(child: _buildMediaCell(context, items[1], 1)),
+          Expanded(child: _buildMediaCell(context, items, 1)),
         ],
       ),
     );
@@ -250,16 +252,16 @@ class RetroAttachmentGrid extends StatelessWidget {
         SizedBox(
           height: 150,
           width: double.infinity,
-          child: _buildMediaCell(context, items[0], 0),
+          child: _buildMediaCell(context, items, 0),
         ),
         const SizedBox(height: 4),
         SizedBox(
           height: 110,
           child: Row(
             children: [
-              Expanded(child: _buildMediaCell(context, items[1], 1)),
+              Expanded(child: _buildMediaCell(context, items, 1)),
               const SizedBox(width: 4),
-              Expanded(child: _buildMediaCell(context, items[2], 2)),
+              Expanded(child: _buildMediaCell(context, items, 2)),
             ],
           ),
         ),
@@ -274,9 +276,9 @@ class RetroAttachmentGrid extends StatelessWidget {
           height: 130,
           child: Row(
             children: [
-              Expanded(child: _buildMediaCell(context, items[0], 0)),
+              Expanded(child: _buildMediaCell(context, items, 0)),
               const SizedBox(width: 4),
-              Expanded(child: _buildMediaCell(context, items[1], 1)),
+              Expanded(child: _buildMediaCell(context, items, 1)),
             ],
           ),
         ),
@@ -285,9 +287,9 @@ class RetroAttachmentGrid extends StatelessWidget {
           height: 130,
           child: Row(
             children: [
-              Expanded(child: _buildMediaCell(context, items[2], 2)),
+              Expanded(child: _buildMediaCell(context, items, 2)),
               const SizedBox(width: 4),
-              Expanded(child: _buildMediaCell(context, items[3], 3)),
+              Expanded(child: _buildMediaCell(context, items, 3)),
             ],
           ),
         ),
@@ -309,7 +311,7 @@ class RetroAttachmentGrid extends StatelessWidget {
             children: [
               for (int i = 0; i < topItems.length; i++) ...[
                 if (i > 0) const SizedBox(width: 4),
-                Expanded(child: _buildMediaCell(context, topItems[i], i)),
+                Expanded(child: _buildMediaCell(context, items, i)),
               ],
             ],
           ),
@@ -324,7 +326,7 @@ class RetroAttachmentGrid extends StatelessWidget {
                 Expanded(
                   child: _buildMediaCell(
                     context,
-                    bottomItems[i],
+                    items,
                     topCount + i,
                   ),
                 ),
@@ -336,16 +338,26 @@ class RetroAttachmentGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildMediaCell(BuildContext context, Attachment item, int index) {
+  Widget _buildMediaCell(
+    BuildContext context,
+    List<Attachment> allItems,
+    int index,
+  ) {
+    final item = allItems[index];
     final isVideo = item.type == 'video';
-    final imageUrl = isVideo ? item.video?.photoUrl ?? '' : item.photo?.url ?? '';
+    final imageUrl =
+        isVideo ? item.video?.photoUrl ?? '' : item.photo?.url ?? '';
 
     return GestureDetector(
       onTap: () {
         if (onAttachmentTap != null) {
           onAttachmentTap!(item, index);
-        } else if (item.type == 'photo' && imageUrl.isNotEmpty) {
-          _openImageViewer(context, imageUrl);
+        } else {
+          RetroMediaViewer.open(
+            context,
+            items: allItems,
+            initialIndex: index,
+          );
         }
       },
       child: Container(
@@ -357,7 +369,7 @@ class RetroAttachmentGrid extends StatelessWidget {
               Image.network(
                 imageUrl,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Center(
+                errorBuilder: (context, error, stackTrace) => const Center(
                   child: Icon(
                     Icons.broken_image_rounded,
                     color: Color(0xFF8B98A7),
@@ -606,46 +618,6 @@ class RetroAttachmentGrid extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  void _openImageViewer(BuildContext context, String imageUrl) {
-    showDialog(
-      context: context,
-      barrierColor: Colors.black.withOpacity(0.9),
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: EdgeInsets.zero,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            InteractiveViewer(
-              minScale: 0.5,
-              maxScale: 4.0,
-              child: Center(
-                child: Image.network(
-                  imageUrl,
-                  fit: BoxFit.contain,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return const Center(
-                      child: RetroLoadingIndicator(size: 32),
-                    );
-                  },
-                ),
-              ),
-            ),
-            Positioned(
-              top: 30,
-              right: 20,
-              child: IconButton(
-                icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
