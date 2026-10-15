@@ -44,7 +44,7 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > android/upload-keystore.jks
+          echo "$KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d -i > android/upload-keystore.jks
           cat <<EOF > android/key.properties
           key.store=upload-keystore.jks
           key.store.password=$STORE_PASSWORD
