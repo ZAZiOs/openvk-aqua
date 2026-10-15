@@ -13,6 +13,7 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
   final PreferredSizeWidget? bottom;
 
   final double cornerRadius;
+  final bool centerMiddle;
 
   const RetroAppBar({
     super.key,
@@ -24,6 +25,7 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.onBackPressed,
     this.bottom,
     this.cornerRadius = 8.0,
+    this.centerMiddle = true,
   });
 
   @override
@@ -105,7 +107,7 @@ class RetroAppBar extends StatelessWidget implements PreferredSizeWidget {
                               ),
                             )
                           : null,
-                      centerMiddle: true,
+                      centerMiddle: centerMiddle,
                     ),
                   ),
 

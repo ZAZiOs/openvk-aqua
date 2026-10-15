@@ -47,16 +47,22 @@ void main() async {
   );
 }
 
+class _GoBackIntent extends Intent {
+  const _GoBackIntent();
+}
+
 class OpenVkApp extends StatefulWidget {
   final AuthHandler authHandler;
   final OpenVkClient client;
   final SavedAccount? initialAccount;
+  final GlobalKey<NavigatorState>? navigatorKey;
 
   const OpenVkApp({
     super.key,
     required this.authHandler,
     required this.client,
     this.initialAccount,
+    this.navigatorKey,
   });
 
   @override
@@ -64,12 +70,32 @@ class OpenVkApp extends StatefulWidget {
 }
 
 class _OpenVkAppState extends State<OpenVkApp> {
+  late final GlobalKey<NavigatorState> _navigatorKey;
   SavedAccount? _currentAccount;
 
   @override
   void initState() {
     super.initState();
+    _navigatorKey = widget.navigatorKey ?? GlobalKey<NavigatorState>();
     _currentAccount = widget.initialAccount;
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
+    super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+      final nav = _navigatorKey.currentState;
+      if (nav != null && nav.canPop()) {
+        nav.maybePop();
+        return true;
+      }
+    }
+    return false;
   }
 
   void _onLoginSuccess() async {
@@ -89,10 +115,27 @@ class _OpenVkAppState extends State<OpenVkApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'OpenVK',
       debugShowCheckedModeBanner: false,
       theme: RetroTheme.themeData,
       scrollBehavior: const RetroScrollBehavior(),
+      shortcuts: {
+        ...WidgetsApp.defaultShortcuts,
+        const SingleActivator(LogicalKeyboardKey.escape): const _GoBackIntent(),
+      },
+      actions: {
+        ...WidgetsApp.defaultActions,
+        _GoBackIntent: CallbackAction<_GoBackIntent>(
+          onInvoke: (intent) {
+            final nav = _navigatorKey.currentState;
+            if (nav != null && nav.canPop()) {
+              nav.maybePop();
+            }
+            return null;
+          },
+        ),
+      },
       home: _currentAccount == null
           ? LoginView(
               authHandler: widget.authHandler,
@@ -432,6 +475,9 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     Widget? appBarLeading;
     List<Widget>? appBarActions;
 
+    final bool isTwoPaneMessages = isMessages && screenWidth > 1000;
+    bool centerMiddle = true;
+
     if (isNews) {
       appBarTitle = null;
       appBarTitleWidget = RetroSegmentedControl<String>(
@@ -447,7 +493,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
       appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
     } else if (isMessages) {
       appBarTitle = null;
-      appBarTitleWidget = RetroSegmentedControl<String>(
+      final segmented = RetroSegmentedControl<String>(
         tabs: const {
           'all': 'Все',
           'unread': 'Непрочитанные',
@@ -456,6 +502,21 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         onSelected: (filter) => setState(() => _messagesFilter = filter),
         hasShadow: false,
       );
+
+      if (isTwoPaneMessages) {
+        centerMiddle = false;
+        appBarTitleWidget = Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: 400,
+            child: Center(
+              child: segmented,
+            ),
+          ),
+        );
+      } else {
+        appBarTitleWidget = segmented;
+      }
       appBarLeading = hideSidebar ? null : RetroMenuButton(onPressed: _toggleDrawer);
     } else if (isWall) {
       appBarTitle = 'Моя Стена';
@@ -479,10 +540,12 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         titleWidget: appBarTitleWidget,
         leading: appBarLeading,
         actions: appBarActions,
+        centerMiddle: centerMiddle,
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
-          final bool isConstrained = constraints.maxWidth > 850;
+          final bool isMessages = _currentSection == RetroSection.messages;
+          final bool isConstrained = !isMessages && constraints.maxWidth > 850;
 
           return Container(
             color: isConstrained
@@ -494,7 +557,9 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
               child: Container(
                 width: double.infinity,
                 height: double.infinity,
-                constraints: const BoxConstraints(maxWidth: 850),
+                constraints: BoxConstraints(
+                  maxWidth: isMessages ? double.infinity : 850,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0F2F5),
                   border: isConstrained

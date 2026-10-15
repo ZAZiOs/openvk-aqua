@@ -1,17 +1,22 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/api/auth_handler.dart';
 import '../../../core/api/messages_handler.dart';
 import '../../../core/api/openvk_client.dart';
+import '../../../core/models/attachment.dart';
 import '../../../core/models/conversation.dart';
 import '../../../core/models/conversations_response.dart';
 import '../../../core/models/message.dart';
+import '../../../core/models/user.dart';
 import '../../theme/retro_theme.dart';
 import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_attachment_grid.dart';
 import '../../widgets/retro_chat_avatar.dart';
+import '../../widgets/retro_ios6_dialog.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../wall/wall_view.dart';
 
@@ -23,6 +28,8 @@ class ChatConversationView extends StatefulWidget {
   final String? avatarUrl;
   final List<ChatMemberAvatarInfo>? memberAvatars;
   final int currentUserId;
+  final bool isEmbedded;
+  final VoidCallback? onClose;
 
   const ChatConversationView({
     super.key,
@@ -33,7 +40,43 @@ class ChatConversationView extends StatefulWidget {
     this.avatarUrl,
     this.memberAvatars,
     required this.currentUserId,
+    this.isEmbedded = false,
+    this.onClose,
   });
+
+  static const russianMonthsGenitive = [
+    '',
+    'января',
+    'февраля',
+    'марта',
+    'апреля',
+    'мая',
+    'июня',
+    'июля',
+    'августа',
+    'сентября',
+    'октября',
+    'ноября',
+    'декабря',
+  ];
+
+  static String formatDateSeparator(int timestamp) {
+    if (timestamp <= 0) return '';
+    final dt = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
+    final now = DateTime.now();
+    final monthName = russianMonthsGenitive[dt.month];
+    if (dt.year != now.year) {
+      return '${dt.day} $monthName ${dt.year}';
+    }
+    return '${dt.day} $monthName';
+  }
+
+  static bool isSameDay(int ts1, int ts2) {
+    if (ts1 <= 0 || ts2 <= 0) return true;
+    final d1 = DateTime.fromMillisecondsSinceEpoch(ts1 * 1000);
+    final d2 = DateTime.fromMillisecondsSinceEpoch(ts2 * 1000);
+    return d1.year == d2.year && d1.month == d2.month && d1.day == d2.day;
+  }
 
   @override
   State<ChatConversationView> createState() => _ChatConversationViewState();
@@ -80,15 +123,38 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     _scrollController.addListener(_onScroll);
     _loadHistory();
     _markRead();
+    HardwareKeyboard.instance.addHandler(_handleKeyEvent);
   }
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _inputController.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _highlightTimer?.cancel();
     super.dispose();
+  }
+
+  bool _handleKeyEvent(KeyEvent event) {
+    if (event is KeyDownEvent && event.logicalKey == LogicalKeyboardKey.escape) {
+      if (widget.isEmbedded && widget.onClose != null) {
+        final nav = Navigator.maybeOf(context);
+        if (nav != null && nav.canPop()) {
+          nav.maybePop();
+          return true;
+        }
+        widget.onClose!();
+        return true;
+      } else {
+        final nav = Navigator.maybeOf(context);
+        if (nav != null && nav.canPop()) {
+          nav.maybePop();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   void _onScroll() {
@@ -390,6 +456,26 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     }
   }
 
+  Widget _buildDateSeparator(int timestamp) {
+    final text = ChatConversationView.formatDateSeparator(timestamp);
+    if (text.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Center(
+        child: Text(
+          text,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            color: Color(0xFF6B7B8D),
+            fontSize: 12.5,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
   String _formatTime(int timestamp) {
     if (timestamp == 0) return '';
     final dt = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
@@ -398,98 +484,446 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     return '$hour:$minute';
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RetroAppBar(
-        showBackButton: true,
-        titleWidget: GestureDetector(
-          onTap: () {
-            if (widget.conversation.peerId > 0 && !widget.conversation.isChat) {
-              _openUserProfile(widget.conversation.peerId);
-            }
-          },
+  Widget _buildEmbeddedHeader() {
+    return Container(
+      height: 50,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE4E9EF),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFC7D0DA), width: 1),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x0C000000),
+            offset: Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () {
+              if (widget.conversation.peerId > 0 && !widget.conversation.isChat) {
+                _openUserProfile(widget.conversation.peerId);
+              }
+            },
+            child: RetroChatAvatar(
+              avatarUrl: widget.avatarUrl,
+              members: widget.memberAvatars,
+              fallbackText: widget.title,
+              size: 34,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (widget.conversation.peerId > 0 && !widget.conversation.isChat) {
+                  _openUserProfile(widget.conversation.peerId);
+                }
+              },
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: RetroTheme.textPrimary,
+                      fontSize: 14.5,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  ValueListenableBuilder<String?>(
+                    valueListenable: widget.client.messengerStore
+                        .getTypingNotifier(widget.conversation.peerId),
+                    builder: (context, typingText, _) {
+                      if (typingText != null && typingText.isNotEmpty) {
+                        return Text(
+                          typingText,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: RetroTheme.vkBlue,
+                            fontSize: 11.5,
+                            fontStyle: FontStyle.italic,
+                          ),
+                        );
+                      }
+                      if (widget.conversation.isChat) {
+                        return Text(
+                          '${widget.conversation.chatSettings?.membersCount ?? 2} участников',
+                          style: const TextStyle(
+                            color: RetroTheme.textSecondary,
+                            fontSize: 11.5,
+                          ),
+                        );
+                      }
+                      final isUserOnline = !widget.conversation.isChat &&
+                          widget.conversation.isUser &&
+                          widget.client.userCache.getUser(widget.conversation.peerId)?.isOnline == true;
+                      if (isUserOnline) {
+                        return const Text(
+                          'online',
+                          style: TextStyle(
+                            color: RetroTheme.vkBlue,
+                            fontSize: 11.5,
+                          ),
+                        );
+                      }
+                      return const SizedBox.shrink();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getPinnedMessagePreview(Message message) {
+    if (message.text.trim().isNotEmpty) {
+      return message.text;
+    }
+    if (message.isSticker) {
+      return 'Стикер';
+    }
+    if (message.hasGift) {
+      final g = message.giftAttachment;
+      if (message.text.trim().isNotEmpty) return message.text;
+      if (g != null && g.message.trim().isNotEmpty) return g.message;
+      return 'Подарок';
+    }
+    if (message.attachments.isNotEmpty) {
+      final type = message.attachments.first.type;
+      switch (type) {
+        case 'gift':
+          return 'Подарок';
+        case 'photo':
+          return 'Фотография';
+        case 'video':
+          return 'Видеозапись';
+        case 'audio':
+          return 'Аудиозапись';
+        case 'doc':
+          return 'Документ';
+        default:
+          return 'Вложение';
+      }
+    }
+    if (message.isAction) {
+      return message.formatActionText(
+        currentUserId: widget.currentUserId,
+        userCache: widget.client.userCache,
+      );
+    }
+    return 'Сообщение';
+  }
+
+  Widget _buildPinnedMessageBar() {
+    final notifier = widget.client.messengerStore
+        .getOrCreateConversationNotifier(widget.conversation);
+    return ValueListenableBuilder<ConversationItem>(
+      valueListenable: notifier,
+      builder: (context, conv, _) {
+        final pinned = conv.activePinnedMessage;
+        if (pinned == null) return const SizedBox.shrink();
+
+        final preview = _getPinnedMessagePreview(pinned);
+
+        return Container(
+          height: 42,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF0F4F9),
+            border: Border(
+              bottom: BorderSide(
+                color: Color(0xFFC7D3E0),
+                width: 1,
+              ),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Color(0x0A000000),
+                offset: Offset(0, 1),
+                blurRadius: 2,
+              ),
+            ],
+          ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              RetroChatAvatar(
-                avatarUrl: widget.avatarUrl,
-                members: widget.memberAvatars,
-                fallbackText: widget.title,
-                size: 34,
+              Container(
+                width: 3,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: RetroTheme.vkBlue,
+                  borderRadius: BorderRadius.circular(1.5),
+                ),
               ),
               const SizedBox(width: 8),
-              Flexible(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        shadows: [
-                          Shadow(
-                            color: Color(0x99000000),
-                            offset: Offset(0, -1),
-                            blurRadius: 1,
+              Expanded(
+                child: InkWell(
+                  onTap: () => _jumpToMessage(pinned.id),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                          'Закреплённое сообщение',
+                          style: TextStyle(
+                            color: RetroTheme.vkBlue,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
                           ),
-                        ],
+                        ),
+                        Text(
+                          preview,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: RetroTheme.textPrimary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 16, color: Color(0xFF7A889B)),
+                tooltip: 'Открепить сообщение',
+                splashRadius: 16,
+                onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final confirmed = await showIos6ConfirmDialog(
+                    context: context,
+                    title: 'Открепить сообщение',
+                    message: 'Вы действительно хотите открепить это сообщение?',
+                    cancelText: 'Отмена',
+                    confirmText: 'Открепить',
+                    isDestructive: true,
+                  );
+                  if (confirmed == true && mounted) {
+                    final res = await _messagesHandler.unpin(peerId: widget.conversation.peerId);
+                    if (!res.isSuccess && mounted) {
+                      messenger.showSnackBar(
+                        SnackBar(content: Text(res.errorOrNull?.message ?? 'Не удалось открепить сообщение')),
+                      );
+                    }
+                  }
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isWideChat = constraints.maxWidth > 870;
+
+        final Widget chatBody = Container(
+          color: const Color(0xFFE4E8EE),
+          child: Column(
+            children: [
+              if (widget.isEmbedded) _buildEmbeddedHeader(),
+              _buildPinnedMessageBar(),
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: ShaderMask(
+                        shaderCallback: (Rect bounds) {
+                          const fadeHeight = 24.0;
+                          final double fadeStart = bounds.height > fadeHeight
+                              ? ((bounds.height - fadeHeight) / bounds.height)
+                                  .clamp(0.0, 1.0)
+                              : 0.0;
+                          return LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: const [
+                              Colors.white,
+                              Colors.white,
+                              Colors.transparent,
+                            ],
+                            stops: [
+                              0.0,
+                              fadeStart,
+                              1.0,
+                            ],
+                          ).createShader(bounds);
+                        },
+                        blendMode: BlendMode.dstIn,
+                        child: _buildMessagesList(isWideChat: isWideChat),
                       ),
                     ),
-                    if (widget.conversation.isChat)
-                      Text(
-                        '${widget.conversation.chatSettings?.membersCount ?? 2} участников',
-                        style: const TextStyle(
-                          color: Color(0xFFC8D7E8),
-                          fontSize: 11,
+                    if (_showScrollToBottom)
+                      Positioned(
+                        right: 16,
+                        bottom: 16,
+                        child: FloatingActionButton.small(
+                          heroTag: 'chat_scroll_bottom',
+                          onPressed: _jumpToLatest,
+                          backgroundColor: Colors.white,
+                          foregroundColor: RetroTheme.vkBlue,
+                          elevation: 3,
+                          child: const Icon(Icons.keyboard_arrow_down, size: 24),
                         ),
                       ),
                   ],
                 ),
               ),
+              _buildTypingIndicatorBar(),
+              _buildInputBar(),
             ],
           ),
-        ),
-      ),
-      body: Container(
-        color: const Color(0xFFE4E8EE),
-        child: Column(
-          children: [
-            Expanded(
-              child: Stack(
+        );
+
+        if (widget.isEmbedded) {
+          return chatBody;
+        }
+
+        return Scaffold(
+          appBar: RetroAppBar(
+            showBackButton: true,
+            titleWidget: GestureDetector(
+              onTap: () {
+                if (widget.conversation.peerId > 0 && !widget.conversation.isChat) {
+                  _openUserProfile(widget.conversation.peerId);
+                }
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Positioned.fill(
-                    child: _buildMessagesList(),
+                  RetroChatAvatar(
+                    avatarUrl: widget.avatarUrl,
+                    members: widget.memberAvatars,
+                    fallbackText: widget.title,
+                    size: 34,
                   ),
-                  if (_showScrollToBottom)
-                    Positioned(
-                      right: 16,
-                      bottom: 16,
-                      child: FloatingActionButton.small(
-                        heroTag: 'chat_scroll_bottom',
-                        onPressed: _jumpToLatest,
-                        backgroundColor: Colors.white,
-                        foregroundColor: RetroTheme.vkBlue,
-                        elevation: 3,
-                        child: const Icon(Icons.keyboard_arrow_down, size: 24),
-                      ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(
+                                color: Color(0x99000000),
+                                offset: Offset(0, -1),
+                                blurRadius: 1,
+                              ),
+                            ],
+                          ),
+                        ),
+                        ValueListenableBuilder<String?>(
+                          valueListenable: widget.client.messengerStore
+                              .getTypingNotifier(widget.conversation.peerId),
+                          builder: (context, typingText, _) {
+                            if (typingText != null && typingText.isNotEmpty) {
+                              return Text(
+                                typingText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Color(0xFFE2ECF7),
+                                  fontSize: 11,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              );
+                            }
+                            if (widget.conversation.isChat) {
+                              return Text(
+                                '${widget.conversation.chatSettings?.membersCount ?? 2} участников',
+                                style: const TextStyle(
+                                  color: Color(0xFFC8D7E8),
+                                  fontSize: 11,
+                                ),
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
+                      ],
                     ),
+                  ),
                 ],
               ),
             ),
-            _buildInputBar(),
-          ],
-        ),
-      ),
+          ),
+          body: chatBody,
+        );
+      },
     );
   }
 
-  Widget _buildMessagesList() {
+  Widget _buildTypingIndicatorBar() {
+    return ValueListenableBuilder<String?>(
+      valueListenable: widget.client.messengerStore
+          .getTypingNotifier(widget.conversation.peerId),
+      builder: (context, typingText, _) {
+        final isTyping = typingText != null && typingText.isNotEmpty;
+        return Container(
+          width: double.infinity,
+          height: 22,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          color: const Color(0xFFE4E8EE),
+          alignment: Alignment.centerLeft,
+          child: AnimatedOpacity(
+            opacity: isTyping ? 1.0 : 0.0,
+            duration: const Duration(milliseconds: 200),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: RetroLoadingIndicator(size: 12),
+                ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    typingText ?? '',
+                    style: const TextStyle(
+                      color: Color(0xFF6B7B8D),
+                      fontSize: 12,
+                      fontStyle: FontStyle.italic,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMessagesList({required bool isWideChat}) {
     final orderNotifier = widget.client.messengerStore
         .getChatMessageOrderNotifier(widget.conversation.peerId);
 
@@ -563,7 +997,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         return ListView.builder(
           controller: _scrollController,
           reverse: true,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
           itemCount: totalCount,
           itemBuilder: (context, index) {
             // Index 0 in reverse ListView is at the bottom of the scroll
@@ -610,26 +1044,51 @@ class _ChatConversationViewState extends State<ChatConversationView> {
               child: ValueListenableBuilder<Message>(
                 valueListenable: msgNotifier,
                 builder: (context, message, _) {
-                  final isFirstInGroup = prevMsg == null ||
+                  final isDifferentDayFromPrev = prevMsg == null ||
+                      !ChatConversationView.isSameDay(message.date, prevMsg.date);
+                  final isDifferentDayFromNext = nextMsg == null ||
+                      !ChatConversationView.isSameDay(message.date, nextMsg.date);
+
+                  final isFirstInGroup = isDifferentDayFromPrev ||
                       prevMsg.fromId != message.fromId ||
                       prevMsg.isOut != message.isOut ||
                       prevMsg.isSticker ||
+                      prevMsg.hasGift ||
+                      message.hasGift ||
+                      prevMsg.action != null ||
                       (message.date - prevMsg.date).abs() > 300;
 
-                  final isLastInGroup = nextMsg == null ||
+                  final isLastInGroup = isDifferentDayFromNext ||
                       nextMsg.fromId != message.fromId ||
                       nextMsg.isOut != message.isOut ||
                       nextMsg.isSticker ||
+                      nextMsg.hasGift ||
+                      message.hasGift ||
+                      nextMsg.action != null ||
                       (nextMsg.date - message.date).abs() > 300;
 
                   return ValueListenableBuilder<int>(
                     valueListenable: widget.client.userCache.revision,
                     builder: (context, _, child) {
-                      return _buildMessageBubble(
+                      final bubble = _buildMessageBubble(
                         message,
+                        isWideChat: isWideChat,
                         isFirstInGroup: isFirstInGroup,
                         isLastInGroup: isLastInGroup,
                       );
+
+                      if (isDifferentDayFromPrev && message.date > 0) {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildDateSeparator(message.date),
+                            bubble,
+                          ],
+                        );
+                      }
+
+                      return bubble;
                     },
                   );
                 },
@@ -643,9 +1102,14 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
   Widget _buildMessageBubble(
     Message message, {
+    required bool isWideChat,
     bool isFirstInGroup = true,
     bool isLastInGroup = true,
   }) {
+    if (message.action != null) {
+      return _buildActionMessage(message);
+    }
+
     final isOut = message.isOut || message.fromId == widget.currentUserId;
     final isHighlighted = _highlightedMessageId == message.id;
 
@@ -653,6 +1117,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       return _buildStickerMessage(
         message,
         isOut,
+        isWideChat: isWideChat,
         isFirstInGroup: isFirstInGroup,
         isLastInGroup: isLastInGroup,
       );
@@ -666,30 +1131,101 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       cache.requestGroup(message.fromId.abs());
     }
 
-    final senderName = sender?.fullName ??
-        (isOut
-            ? 'Вы'
-            : (cache.getSenderName(message.fromId).isNotEmpty
+    final myUser = cache.getUser(widget.currentUserId);
+    final myAvatarUrl = widget.account.avatarUrl.isNotEmpty
+        ? widget.account.avatarUrl
+        : myUser?.avatarUrl;
+    final myName = myUser?.firstName ??
+        (widget.account.name.isNotEmpty
+            ? widget.account.name
+            : 'Вы');
+
+    final senderName = isOut
+        ? 'Вы'
+        : (sender?.fullName ??
+            (cache.getSenderName(message.fromId).isNotEmpty
                 ? cache.getSenderName(message.fromId)
                 : 'Собеседник'));
 
+    final isGift = message.hasGift;
+    final gift = message.giftAttachment;
+    final giftComment = gift?.message.trim() ?? '';
+    final rawMsgText = message.text.trim();
+    final String effectiveGiftText;
+    if (rawMsgText.isNotEmpty && giftComment.isNotEmpty) {
+      if (rawMsgText == giftComment) {
+        effectiveGiftText = rawMsgText;
+      } else {
+        effectiveGiftText = '$rawMsgText\n$giftComment';
+      }
+    } else if (rawMsgText.isNotEmpty) {
+      effectiveGiftText = rawMsgText;
+    } else {
+      effectiveGiftText = giftComment;
+    }
+
+    final timeStr = _formatTime(message.date);
+    final textStyle = TextStyle(
+      color: isGift
+          ? const Color(0xFF382A02)
+          : (isOut ? const Color(0xFF14293E) : const Color(0xFF1E242B)),
+      fontSize: 14.5,
+      height: 1.25,
+    );
+    final timeStyle = TextStyle(
+      color: isGift
+          ? const Color(0xFF8A6D1C)
+          : (isOut ? const Color(0xFF5C7C9E) : const Color(0xFF8692A0)),
+      fontSize: 10.5,
+      fontWeight: FontWeight.w500,
+    );
+
+    final int genderType = sender?.genderType ??
+        User.resolveGenderType(sex: sender?.sex, pronouns: sender?.pronouns);
+    final String verb = switch (genderType) {
+      1 => 'отправила',
+      2 => 'отправил',
+      _ => 'отправил(а)',
+    };
+
+    final String giftHeaderTitle;
+    if (isOut) {
+      giftHeaderTitle = 'Вы отправили подарок';
+    } else if (widget.conversation.isChat) {
+      giftHeaderTitle = '$senderName $verb подарок';
+    } else {
+      giftHeaderTitle = '$verb вам подарок';
+    }
+
+    final maxBubbleWidth = isGift
+        ? 210.0
+        : (isWideChat
+            ? 560.0
+            : min(MediaQuery.of(context).size.width * 0.78, 420.0));
+
+    final showLeftAvatar = !isOut || isWideChat;
+    final showLeftTail = isLastInGroup && (!isOut || isWideChat);
+    final showRightTail = isLastInGroup && (isOut && !isWideChat);
+
     return Padding(
       padding: EdgeInsets.only(
-        top: isFirstInGroup ? 4 : 1.5,
-        bottom: isLastInGroup ? 4 : 1.5,
+        top: isFirstInGroup ? 4.5 : 1.5,
+        bottom: isLastInGroup ? 4.5 : 1.5,
       ),
       child: Row(
-        mainAxisAlignment:
-            isOut ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: (isOut && !isWideChat)
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isOut) ...[
+          if (showLeftAvatar) ...[
             if (isLastInGroup)
               GestureDetector(
-                onTap: () => _openUserProfile(message.fromId),
+                onTap: () => _openUserProfile(
+                    isOut ? widget.currentUserId : message.fromId),
                 child: RetroChatAvatar(
-                  avatarUrl: sender?.avatarUrl,
-                  fallbackText: sender?.firstName ?? '?',
+                  avatarUrl: isOut ? myAvatarUrl : sender?.avatarUrl,
+                  fallbackText: isOut ? myName : (sender?.firstName ?? '?'),
                   size: 32,
                 ),
               )
@@ -699,89 +1235,258 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           ],
           Flexible(
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 420),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
               decoration: BoxDecoration(
-                color: isHighlighted
-                    ? (isOut ? const Color(0xFFD8E7FA) : const Color(0xFFE8F1FC))
-                    : (isOut ? RetroTheme.msgOutBubble : RetroTheme.msgInBubble),
-                borderRadius: BorderRadius.circular(10),
+                gradient: isHighlighted
+                    ? (isGift
+                        ? const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [Color(0xFFFFEA9F), Color(0xFFE6AE1E)],
+                          )
+                        : (isOut
+                            ? const LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0xFFD6E8FA), Color(0xFFBEDBF7)],
+                              )
+                            : const LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [Color(0xFFEAF1FB), Color(0xFFD9E7F7)],
+                              )))
+                    : (isGift
+                        ? const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Color(0xFFFFF9DB), // Glossy warm gold highlight top
+                              Color(0xFFFFDF7D), // Rich gold bottom
+                            ],
+                          )
+                        : (isOut
+                            ? const LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Color(0xFFEDF5FE), // Glossy top highlight
+                                  Color(0xFFD2E4F7), // Rich soft blue bottom
+                                ],
+                              )
+                            : const LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Color(0xFFFFFFFF), // Pure white gloss top
+                                  Color(0xFFEDF1F6), // Soft silver-gray bottom
+                                ],
+                              ))),
+                borderRadius: BorderRadius.only(
+                  topLeft: const Radius.circular(14),
+                  topRight: const Radius.circular(14),
+                  bottomLeft: Radius.circular(showLeftTail ? 3 : 14),
+                  bottomRight: Radius.circular(showRightTail ? 3 : 14),
+                ),
                 border: Border.all(
                   color: isHighlighted
-                      ? RetroTheme.vkBlue
-                      : (isOut ? RetroTheme.msgOutBorder : RetroTheme.msgInBorder),
-                  width: isHighlighted ? 1.5 : 1,
+                      ? (isGift ? const Color(0xFFC78F0A) : RetroTheme.vkBlue)
+                      : (isGift
+                          ? const Color(0xFFE0B445)
+                          : (isOut
+                              ? const Color(0xFFA6C2DE)
+                              : const Color(0xFFC5CED8))),
+                  width: isHighlighted ? 1.5 : 1.0,
                 ),
                 boxShadow: [
                   if (isHighlighted)
                     BoxShadow(
-                      color: RetroTheme.vkBlue.withValues(alpha: 0.35),
+                      color: (isGift ? const Color(0xFFE6AE1E) : RetroTheme.vkBlue)
+                          .withValues(alpha: 0.35),
                       blurRadius: 8,
                       spreadRadius: 1,
                     )
-                  else
-                    const BoxShadow(
-                      color: Color(0x10000000),
-                      offset: Offset(0, 1),
-                      blurRadius: 2,
+                  else ...[
+                    BoxShadow(
+                      color: isGift ? const Color(0x248A6D1C) : const Color(0x18000000),
+                      offset: const Offset(0, 1),
+                      blurRadius: 1.5,
                     ),
+                    BoxShadow(
+                      color: isGift ? const Color(0x148A6D1C) : const Color(0x06000000),
+                      offset: const Offset(0, 2),
+                      blurRadius: 4,
+                    ),
+                  ],
                 ],
               ),
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (!isOut && widget.conversation.isChat && isFirstInGroup)
+                  if (isGift)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: GestureDetector(
-                        onTap: () => _openUserProfile(message.fromId),
-                        child: Text(
-                          senderName,
-                          style: const TextStyle(
-                            color: RetroTheme.textLink,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.bold,
+                      padding: const EdgeInsets.only(top: 2, bottom: 4),
+                      child: Text(
+                        giftHeaderTitle,
+                        style: const TextStyle(
+                          color: Color(0xFF7A5500),
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    )
+                  else if (widget.conversation.isChat && isFirstInGroup)
+                    if (!isOut || isWideChat)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: GestureDetector(
+                          onTap: () => _openUserProfile(
+                              isOut ? widget.currentUserId : message.fromId),
+                          child: Text(
+                            isOut ? 'Вы' : senderName,
+                            style: const TextStyle(
+                              color: RetroTheme.vkBlue,
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
                       ),
-                    ),
                   if (message.replyMessage != null ||
                       message.replyMessageId != null)
                     _buildReplyQuote(message, isOut),
-                  if (message.text.isNotEmpty)
-                    Text(
-                      message.text,
-                      style: const TextStyle(
-                        color: RetroTheme.textPrimary,
-                        fontSize: 14.5,
+                  if (isGift && gift != null)
+                    _buildGiftAttachment(gift),
+                  if (isGift) ...[
+                    if (message.attachments.where((a) => a.type != 'gift').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: RetroAttachmentGrid(
+                          attachments: message.attachments
+                              .where((a) => a.type != 'gift')
+                              .toList(),
+                          isOut: isOut,
+                          maxWidth: 200,
+                        ),
                       ),
-                    ),
-                  if (message.attachments.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: RetroAttachmentGrid(
-                        attachments: message.attachments,
-                        isOut: isOut,
-                        maxWidth: 380,
+                    if (effectiveGiftText.isNotEmpty)
+                      _BubbleTextWithTime(
+                        text: effectiveGiftText,
+                        time: timeStr,
+                        textStyle: textStyle,
+                        timeStyle: timeStyle,
+                      )
+                    else
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(timeStr, style: timeStyle),
+                        ),
                       ),
-                    ),
-                  const SizedBox(height: 3),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Text(
-                      _formatTime(message.date),
-                      style: const TextStyle(
-                        color: RetroTheme.textMuted,
-                        fontSize: 10.5,
+                  ] else ...[
+                    if (message.attachments.isNotEmpty)
+                      Padding(
+                        padding: EdgeInsets.only(
+                          top: (message.replyMessage != null ||
+                                  message.replyMessageId != null)
+                              ? 2
+                              : 0,
+                          bottom: message.text.isNotEmpty ? 5 : 0,
+                        ),
+                        child: RetroAttachmentGrid(
+                          attachments: message.attachments,
+                          isOut: isOut,
+                          maxWidth: 380,
+                        ),
                       ),
-                    ),
-                  ),
+                    if (message.text.isNotEmpty)
+                      _BubbleTextWithTime(
+                        text: message.text,
+                        time: timeStr,
+                        textStyle: textStyle,
+                        timeStyle: timeStyle,
+                      )
+                    else
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(timeStr, style: timeStyle),
+                        ],
+                      ),
+                  ],
                 ],
               ),
             ),
           ),
-          if (isOut) const SizedBox(width: 4),
+          if (isOut && !isWideChat) const SizedBox(width: 4),
         ],
+      ),
+    );
+  }
+
+  Widget _buildGiftAttachment(GiftAttachment gift) {
+    final thumb = gift.bestThumb;
+    const double giftSize = 160.0;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: thumb.isNotEmpty
+            ? ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(
+                  thumb,
+                  width: giftSize,
+                  height: giftSize,
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return const SizedBox(
+                      width: giftSize,
+                      height: giftSize,
+                      child: Center(
+                        child: RetroLoadingIndicator(size: 24),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    return Container(
+                      width: giftSize,
+                      height: giftSize,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFDE8A1),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFE0B445), width: 1),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.card_giftcard,
+                          size: 56,
+                          color: Color(0xFFB8860B),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              )
+            : Container(
+                width: giftSize,
+                height: giftSize,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDE8A1),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE0B445), width: 1),
+                ),
+                child: const Center(
+                  child: Icon(
+                    Icons.card_giftcard,
+                    size: 56,
+                    color: Color(0xFFB8860B),
+                  ),
+                ),
+              ),
       ),
     );
   }
@@ -880,6 +1585,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   Widget _buildStickerMessage(
     Message message,
     bool isOut, {
+    required bool isWideChat,
     bool isFirstInGroup = true,
     bool isLastInGroup = true,
   }) {
@@ -894,23 +1600,36 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       cache.requestGroup(message.fromId.abs());
     }
 
+    final myUser = cache.getUser(widget.currentUserId);
+    final myAvatarUrl = widget.account.avatarUrl.isNotEmpty
+        ? widget.account.avatarUrl
+        : myUser?.avatarUrl;
+    final myName = myUser?.firstName ??
+        (widget.account.name.isNotEmpty
+            ? widget.account.name
+            : 'Вы');
+
+    final showLeftAvatar = !isOut || isWideChat;
+
     return Padding(
       padding: EdgeInsets.only(
         top: isFirstInGroup ? 4 : 1.5,
         bottom: isLastInGroup ? 4 : 1.5,
       ),
       child: Row(
-        mainAxisAlignment:
-            isOut ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: (isOut && !isWideChat)
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (!isOut) ...[
+          if (showLeftAvatar) ...[
             if (isLastInGroup)
               GestureDetector(
-                onTap: () => _openUserProfile(message.fromId),
+                onTap: () => _openUserProfile(
+                    isOut ? widget.currentUserId : message.fromId),
                 child: RetroChatAvatar(
-                  avatarUrl: sender?.avatarUrl,
-                  fallbackText: sender?.firstName ?? '?',
+                  avatarUrl: isOut ? myAvatarUrl : sender?.avatarUrl,
+                  fallbackText: isOut ? myName : (sender?.firstName ?? '?'),
                   size: 32,
                 ),
               )
@@ -919,70 +1638,71 @@ class _ChatConversationViewState extends State<ChatConversationView> {
             const SizedBox(width: 8),
           ],
           Column(
-            crossAxisAlignment:
-                isOut ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            crossAxisAlignment: (isOut && !isWideChat)
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
             children: [
               if (message.replyMessage != null ||
                   message.replyMessageId != null)
                 _buildReplyQuote(message, isOut),
               Stack(
-            children: [
-              SizedBox(
-                width: 160,
-                height: 160,
-                child: stickerUrl.isNotEmpty
-                    ? Image.network(
-                        stickerUrl,
-                        fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) =>
-                            _buildStickerFallback(sticker?.stickerId ?? 0),
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return const Center(
-                            child: RetroLoadingIndicator(size: 20),
-                          );
-                        },
-                      )
-                    : _buildStickerFallback(sticker?.stickerId ?? 0),
-              ),
-              Positioned(
-                bottom: 4,
-                right: 4,
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0x66000000),
-                    borderRadius: BorderRadius.circular(10),
+                children: [
+                  SizedBox(
+                    width: 160,
+                    height: 160,
+                    child: stickerUrl.isNotEmpty
+                        ? Image.network(
+                            stickerUrl,
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) =>
+                                _buildStickerFallback(sticker?.stickerId ?? 0),
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: RetroLoadingIndicator(size: 20),
+                              );
+                            },
+                          )
+                        : _buildStickerFallback(sticker?.stickerId ?? 0),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _formatTime(message.date),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w500,
-                        ),
+                  Positioned(
+                    bottom: 4,
+                    right: 4,
+                    child: Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0x66000000),
+                        borderRadius: BorderRadius.circular(10),
                       ),
-                      if (isOut) ...[
-                        const SizedBox(width: 3),
-                        Icon(
-                          message.isUnread ? Icons.done : Icons.done_all,
-                          size: 11,
-                          color: Colors.white,
-                        ),
-                      ],
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            _formatTime(message.date),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          if (isOut) ...[
+                            const SizedBox(width: 3),
+                            Icon(
+                              message.isUnread ? Icons.done : Icons.done_all,
+                              size: 11,
+                              color: Colors.white,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
             ],
           ),
-            ],
-          ),
-          if (isOut) const SizedBox(width: 4),
+          if (isOut && !isWideChat) const SizedBox(width: 4),
         ],
       ),
     );
@@ -1018,6 +1738,33 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildActionMessage(Message message) {
+    return ValueListenableBuilder<int>(
+      valueListenable: widget.client.userCache.revision,
+      builder: (context, _, child) {
+        final text = message.formatActionText(
+          currentUserId: widget.currentUserId,
+          userCache: widget.client.userCache,
+        );
+
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 6),
+          child: Center(
+            child: Text(
+              text,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Color(0xFF6B7B8D),
+                fontSize: 12.5,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1104,4 +1851,100 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     ),
   );
 }
+}
+
+class _BubbleTextWithTime extends StatelessWidget {
+  final String text;
+  final String time;
+  final TextStyle textStyle;
+  final TextStyle timeStyle;
+
+  const _BubbleTextWithTime({
+    required this.text,
+    required this.time,
+    required this.textStyle,
+    required this.timeStyle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxWidth = constraints.maxWidth;
+        const spacing = 7.0;
+
+        final timePainter = TextPainter(
+          text: TextSpan(text: time, style: timeStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+
+        final textPainter = TextPainter(
+          text: TextSpan(text: text, style: textStyle),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: maxWidth);
+
+        final lines = textPainter.computeLineMetrics();
+        final timeWidth = timePainter.width;
+
+        // 1. Single-line: check if text + spacing + time fits on 1 line
+        if (lines.length <= 1) {
+          final singleLineWidth = textPainter.width;
+          if (singleLineWidth + spacing + timeWidth <= maxWidth) {
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: Text(text, style: textStyle),
+                ),
+                const SizedBox(width: spacing),
+                Text(time, style: timeStyle),
+              ],
+            );
+          }
+        }
+
+        // 2. Multi-line: check if last line has space for time without expanding block width
+        if (lines.isNotEmpty) {
+          final lastLine = lines.last;
+          final maxLineWidth = lines.map((l) => l.width).reduce(max);
+
+          // If last line width + spacing + time fits within maxWidth and doesn't exceed the widest line + 8
+          if (lastLine.width + spacing + timeWidth <= maxWidth &&
+              lastLine.width + spacing + timeWidth <= max(maxLineWidth, 60.0) + 8) {
+            return Text.rich(
+              TextSpan(
+                children: [
+                  TextSpan(text: text, style: textStyle),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: spacing),
+                      child: Text(time, style: timeStyle),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+        }
+
+        // 3. Time does not fit on the same line -> wrap to second line, aligned to the right, fit-content!
+        return IntrinsicWidth(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(text, style: textStyle),
+              const SizedBox(height: 1.5),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Text(time, style: timeStyle),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
 }

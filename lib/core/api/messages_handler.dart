@@ -31,7 +31,7 @@ class MessagesHandler {
         'count': count,
         'filter': filter,
         'extended': extended ? 1 : 0,
-        'fields': 'photo_50,photo_100,online',
+        'fields': 'photo_50,photo_100,online,sex,pronouns,personal',
       },
       parser: (json) => ConversationsResponse.fromJson(JsonSafe.toMap(json)),
       fallback: () => ConversationsResponse.empty(),
@@ -63,7 +63,7 @@ class MessagesHandler {
       'offset': offset,
       'count': count,
       'extended': extended ? 1 : 0,
-      'fields': 'photo_50,photo_100,online',
+      'fields': 'photo_50,photo_100,online,sex,pronouns,personal',
       'start_message_id': ?startMessageId,
     };
 
@@ -88,7 +88,7 @@ class MessagesHandler {
 
   Future<ApiResponse<Map<String, dynamic>>> getConversationMembers({
     required int peerId,
-    String fields = 'photo_50,photo_100,online',
+    String fields = 'photo_50,photo_100,online,sex,pronouns,personal',
   }) async {
     return _client.call<Map<String, dynamic>>(
       'messages.getConversationMembers',
@@ -111,7 +111,7 @@ class MessagesHandler {
         'v': '5.86',
         'message_ids': messageIds.join(','),
         'extended': extended ? 1 : 0,
-        'fields': 'photo_50,photo_100,online',
+        'fields': 'photo_50,photo_100,online,sex,pronouns,personal',
       },
       parser: (json) {
         if (json is Map) return Map<String, dynamic>.from(json);
@@ -248,5 +248,23 @@ class MessagesHandler {
       parser: (json) => JsonSafe.toBool(json, true),
       fallback: () => false,
     );
+  }
+
+  Future<ApiResponse<bool>> unpin({required int peerId}) async {
+    final res = await _client.call<bool>(
+      'messages.unpin',
+      httpMethod: HttpMethod.post,
+      params: {
+        'v': '5.86',
+        'peer_id': peerId,
+      },
+      parser: (json) => JsonSafe.toBool(json, true),
+      fallback: () => false,
+    );
+
+    if (res.isSuccess) {
+      _client.messengerStore.unpinMessage(peerId);
+    }
+    return res;
   }
 }

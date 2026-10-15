@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:openvk_flutter/core/api/auth_handler.dart';
 import 'package:openvk_flutter/core/api/openvk_client.dart';
 import 'package:openvk_flutter/core/cache/user_cache.dart';
 import 'package:openvk_flutter/core/models/conversation.dart';
@@ -271,6 +272,15 @@ void main() {
         MaterialApp(
           home: ChatConversationView(
             client: client,
+            account: const SavedAccount(
+              id: 1,
+              instanceId: 1,
+              userId: 999,
+              name: 'User',
+              avatarUrl: '',
+              accessToken: 'tok',
+              isActive: true,
+            ),
             conversation: conv,
             title: 'Тестовый чат',
             currentUserId: 999,
@@ -279,11 +289,15 @@ void main() {
       );
 
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
 
       // Find the reply quote author name and preview text
       // The text appears twice: once in the quote snippet, once in the original message bubble
-      expect(find.text('Привет, это цитируемое сообщение!'), findsNWidgets(2));
-      expect(find.text('А это ответ на твоё сообщение'), findsOneWidget);
+      expect(
+        find.textContaining('Привет, это цитируемое сообщение!', findRichText: true),
+        findsNWidgets(2),
+      );
+      expect(find.textContaining('А это ответ на твоё сообщение', findRichText: true), findsOneWidget);
 
       // Verify reply quote is clickable
       await tester.tap(find.text('Иван Иванов'));

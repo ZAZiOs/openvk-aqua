@@ -106,7 +106,7 @@ class OpenVkClient {
         'users.get',
         params: {
           'user_ids': userIds.join(','),
-          'fields': 'photo_50,photo_100,online',
+          'fields': 'photo_50,photo_100,online,sex,pronouns,personal',
         },
         parser: (json) {
           if (json is List) {
@@ -166,7 +166,7 @@ class OpenVkClient {
         params: {
           'message_ids': messageIds.join(','),
           'extended': 1,
-          'fields': 'photo_50,photo_100,online',
+          'fields': 'photo_50,photo_100,online,sex,pronouns,personal',
         },
         parser: (json) {
           if (json is Map) return Map<String, dynamic>.from(json);

@@ -12,6 +12,7 @@ import 'package:openvk_flutter/core/models/conversation.dart';
 import 'package:openvk_flutter/core/models/conversations_response.dart';
 import 'package:openvk_flutter/core/models/history_response.dart';
 import 'package:openvk_flutter/core/models/message.dart';
+import 'package:openvk_flutter/core/models/user.dart';
 import 'package:openvk_flutter/core/store/messenger_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -366,6 +367,75 @@ void main() {
       expect(store.getMessage(999)?.text, 'Секретное сообщение');
 
       lpService.stop();
+    });
+
+    test('handles typing events with correct formatting', () {
+      store.userCache.putUser(const User(
+        id: 1,
+        firstName: 'Иван',
+        lastName: 'Иванов',
+        photo50: '',
+        photo100: '',
+        isOnline: true,
+      ));
+      store.userCache.putUser(const User(
+        id: 2,
+        firstName: 'Анна',
+        lastName: 'Смирнова',
+        photo50: '',
+        photo100: '',
+        isOnline: true,
+      ));
+      store.userCache.putUser(const User(
+        id: 3,
+        firstName: 'Петр',
+        lastName: 'Петров',
+        photo50: '',
+        photo100: '',
+        isOnline: true,
+      ));
+      store.userCache.putUser(const User(
+        id: 4,
+        firstName: 'Ольга',
+        lastName: 'Сидорова',
+        photo50: '',
+        photo100: '',
+        isOnline: true,
+      ));
+
+      final typingNotifier = store.getTypingNotifier(1001);
+      expect(typingNotifier.value, null);
+
+      // 1 user typing
+      store.onUserTyping(peerId: 1001, userIds: [1], totalCount: 1);
+      expect(typingNotifier.value, 'Иван печатает...');
+
+      // 2 users typing
+      store.onUserTyping(peerId: 1001, userIds: [1, 2], totalCount: 2);
+      expect(typingNotifier.value, 'Иван и Анна печатает...');
+
+      // 3 users typing
+      store.onUserTyping(peerId: 1001, userIds: [1, 2, 3], totalCount: 3);
+      expect(typingNotifier.value, 'Иван, Анна и Петр печатает...');
+
+      // > 3 users typing
+      store.onUserTyping(peerId: 1001, userIds: [1, 2, 3, 4], totalCount: 4);
+      expect(typingNotifier.value, 'несколько человек печатает...');
+
+      // > 3 by totalCount
+      store.onUserTyping(peerId: 1001, userIds: [1], totalCount: 5);
+      expect(typingNotifier.value, 'несколько человек печатает...');
+
+      // New message clears typing
+      store.onNewMessage(
+        messageId: 555,
+        flags: 0,
+        peerId: 1001,
+        timestamp: 1000,
+        text: 'Привет!',
+        fromId: 1,
+      );
+      expect(typingNotifier.value, null);
     });
   });
 }

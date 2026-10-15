@@ -20,6 +20,7 @@ class UserCache {
   final Set<int> _pendingUserIds = {};
   final Set<int> _inFlightUserIds = {};
   final Set<int> _failedUserIds = {};
+  final Set<int> _pronounsRefreshedUserIds = {};
 
   final Set<int> _pendingGroupIds = {};
   final Set<int> _inFlightGroupIds = {};
@@ -47,6 +48,14 @@ class UserCache {
     final user = _users[id];
     if (user == null && autoFetch && id > 0) {
       requestUser(id);
+    } else if (user != null &&
+        autoFetch &&
+        id > 0 &&
+        user.pronouns.isEmpty &&
+        user.customGenderType == null &&
+        !_pronounsRefreshedUserIds.contains(id)) {
+      _pronounsRefreshedUserIds.add(id);
+      requestUser(id, force: true);
     }
     return user;
   }
@@ -187,12 +196,12 @@ class UserCache {
 
   /// Requests a user to be fetched in background if not already cached.
   /// Automatically batches multiple requests into a single API call.
-  void requestUser(int userId) {
-    if (userId <= 0 ||
-        _users.containsKey(userId) ||
-        _pendingUserIds.contains(userId) ||
+  void requestUser(int userId, {bool force = false}) {
+    if (userId <= 0) return;
+    if (!force && _users.containsKey(userId)) return;
+    if (_pendingUserIds.contains(userId) ||
         _inFlightUserIds.contains(userId) ||
-        _failedUserIds.contains(userId)) {
+        (!force && _failedUserIds.contains(userId))) {
       return;
     }
     if (fetchUsersHandler == null) return;
@@ -282,6 +291,7 @@ class UserCache {
     _users.clear();
     _groups.clear();
     _chats.clear();
+    _pronounsRefreshedUserIds.clear();
     revision.value = 0;
   }
 }

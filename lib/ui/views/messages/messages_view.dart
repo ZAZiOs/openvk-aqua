@@ -36,6 +36,9 @@ class _MessagesViewState extends State<MessagesView> {
   bool _isLoadingMore = false;
   String? _errorMessage;
 
+  int? _selectedPeerId;
+  ConversationItem? _selectedConversation;
+
   int _allOffset = 0;
   bool _hasMoreAll = true;
 
@@ -263,13 +266,134 @@ class _MessagesViewState extends State<MessagesView> {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isTwoPane = screenWidth > 1000;
+
+    if (!isTwoPane) {
+      return Column(
+        children: [
+          _buildHeaderToolbar(),
+          Expanded(
+            child: _buildBody(isTwoPane: false),
+          ),
+        ],
+      );
+    }
+
+    return Row(
       children: [
-        _buildHeaderToolbar(),
+        SizedBox(
+          width: 400,
+          child: Column(
+            children: [
+              _buildHeaderToolbar(),
+              Expanded(
+                child: _buildBody(isTwoPane: true),
+              ),
+            ],
+          ),
+        ),
+        Container(
+          width: 1,
+          color: const Color(0xFFC7D0DA),
+        ),
         Expanded(
-          child: _buildBody(),
+          child: _buildChatDetailPane(),
         ),
       ],
+    );
+  }
+
+  Widget _buildChatDetailPane() {
+    if (_selectedPeerId == null) {
+      return _buildEmptyChatPlaceholder();
+    }
+
+    final store = widget.client.messengerStore;
+    final convNotifier = store.getConversationNotifier(_selectedPeerId!);
+
+    return ValueListenableBuilder<ConversationItem?>(
+      valueListenable: convNotifier ?? ValueNotifier(_selectedConversation),
+      builder: (context, liveConv, _) {
+        final conv = liveConv ?? _selectedConversation;
+        if (conv == null) {
+          return _buildEmptyChatPlaceholder();
+        }
+
+        final title = store.getTitle(conv);
+        final avatarUrl = store.getAvatarUrl(conv);
+        final memberAvatars = store.getChatMemberAvatars(conv);
+
+        return ChatConversationView(
+          key: ValueKey(conv.peerId),
+          client: widget.client,
+          account: widget.account,
+          conversation: conv,
+          title: title,
+          avatarUrl: avatarUrl,
+          memberAvatars: memberAvatars,
+          currentUserId: widget.account.userId,
+          isEmbedded: true,
+          onClose: () {
+            setState(() {
+              _selectedPeerId = null;
+              _selectedConversation = null;
+            });
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildEmptyChatPlaceholder() {
+    return Container(
+      color: const Color(0xFFE4E8EE),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 28),
+          margin: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFC7D0DA), width: 1),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x10000000),
+                offset: Offset(0, 2),
+                blurRadius: 6,
+              ),
+            ],
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.forum_outlined,
+                size: 54,
+                color: Color(0xFF8B98A7),
+              ),
+              SizedBox(height: 14),
+              Text(
+                'Выберите диалог',
+                style: TextStyle(
+                  color: RetroTheme.textPrimary,
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Выберите чат из списка слева, чтобы начать общение',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: RetroTheme.textSecondary,
+                  fontSize: 13.5,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -359,7 +483,7 @@ class _MessagesViewState extends State<MessagesView> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody({required bool isTwoPane}) {
     final orderNotifier = _currentFilter == 'unread'
         ? widget.client.messengerStore.unreadConversationOrder
         : widget.client.messengerStore.conversationOrder;
@@ -508,7 +632,7 @@ class _MessagesViewState extends State<MessagesView> {
                     return ValueListenableBuilder<int>(
                       valueListenable: widget.client.userCache.revision,
                       builder: (context, _, _) {
-                        return _buildConversationTile(item);
+                        return _buildConversationTile(item, isTwoPane: isTwoPane);
                       },
                     );
                   },
@@ -555,7 +679,7 @@ class _MessagesViewState extends State<MessagesView> {
     );
   }
 
-  Widget _buildConversationTile(ConversationItem item) {
+  Widget _buildConversationTile(ConversationItem item, {required bool isTwoPane}) {
     final store = widget.client.messengerStore;
     final title = store.getTitle(item);
     final avatarUrl = store.getAvatarUrl(item);
@@ -569,52 +693,87 @@ class _MessagesViewState extends State<MessagesView> {
     final isOut = lastMsg.isOut || lastMsg.fromId == widget.account.userId;
 
     String? senderPrefix;
-    if (isOut) {
-      senderPrefix = 'Вы: ';
-    } else if (item.isChat && lastMsg.fromId != 0) {
-      final senderName = store.userCache.getSenderName(lastMsg.fromId);
-      if (senderName.isNotEmpty) {
-        senderPrefix = '$senderName: ';
-      } else {
-        if (lastMsg.fromId > 0) {
-          store.userCache.requestUser(lastMsg.fromId);
-        } else if (lastMsg.fromId < 0) {
-          store.userCache.requestGroup(lastMsg.fromId.abs());
+    if (lastMsg.action == null) {
+      if (isOut) {
+        senderPrefix = 'Вы: ';
+      } else if (item.isChat && lastMsg.fromId != 0) {
+        final senderName = store.userCache.getSenderName(lastMsg.fromId);
+        if (senderName.isNotEmpty) {
+          senderPrefix = '$senderName: ';
+        } else {
+          if (lastMsg.fromId > 0) {
+            store.userCache.requestUser(lastMsg.fromId);
+          } else if (lastMsg.fromId < 0) {
+            store.userCache.requestGroup(lastMsg.fromId.abs());
+          }
         }
       }
     }
 
     final hasUnreadCount = item.unreadCount > 0;
     final isUnreadOut = isOut && !item.isOutRead;
+    final isSelected = isTwoPane && item.peerId == _selectedPeerId;
 
     return Material(
-      color: Colors.white,
+      color: isSelected ? const Color(0xFFE2ECF7) : Colors.white,
       child: InkWell(
-        onTap: () => _openChat(item),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  // Retro Avatar: tapping avatar in 1-on-1 dialog opens user profile
-                  GestureDetector(
-                    onTap: () {
-                      if (item.peerId > 0 && !item.isChat) {
-                        _openUserProfile(item.peerId);
-                      } else {
-                        _openChat(item);
-                      }
-                    },
-                    child: RetroChatAvatar(
-                      avatarUrl: avatarUrl,
-                      members: memberAvatars,
-                      fallbackText: title,
-                      size: 50,
-                      isOnline: isUserOnline,
+        onTap: () {
+          if (isTwoPane) {
+            setState(() {
+              _selectedPeerId = item.peerId;
+              _selectedConversation = item;
+            });
+          } else {
+            _openChat(item);
+          }
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            border: isSelected
+                ? const Border(
+                    left: BorderSide(
+                      color: RetroTheme.vkBlue,
+                      width: 3.5,
                     ),
-                  ),
+                  )
+                : null,
+          ),
+          child: Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.only(
+                  left: isSelected ? 8.5 : 12,
+                  right: 12,
+                  top: 10,
+                  bottom: 10,
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    // Retro Avatar: tapping avatar in 1-on-1 dialog opens user profile
+                    GestureDetector(
+                      onTap: () {
+                        if (item.peerId > 0 && !item.isChat) {
+                          _openUserProfile(item.peerId);
+                        } else {
+                          if (isTwoPane) {
+                            setState(() {
+                              _selectedPeerId = item.peerId;
+                              _selectedConversation = item;
+                            });
+                          } else {
+                            _openChat(item);
+                          }
+                        }
+                      },
+                      child: RetroChatAvatar(
+                        avatarUrl: avatarUrl,
+                        members: memberAvatars,
+                        fallbackText: title,
+                        size: 50,
+                        isOnline: isUserOnline,
+                      ),
+                    ),
                   const SizedBox(width: 12),
                   // Chat title, message snippet, and timestamp
                   Expanded(
@@ -658,33 +817,60 @@ class _MessagesViewState extends State<MessagesView> {
                         Row(
                           children: [
                             Expanded(
-                              child: RichText(
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                text: TextSpan(
-                                  children: [
-                                    if (senderPrefix != null)
-                                      TextSpan(
-                                        text: senderPrefix,
-                                        style: TextStyle(
-                                          color: isOut
-                                              ? const Color(0xFF4A6B8D)
-                                              : RetroTheme.textPrimary,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 13.5,
-                                        ),
-                                      ),
-                                    TextSpan(
-                                      text: lastMsg.previewText,
-                                      style: TextStyle(
-                                        color: isOut
-                                            ? const Color(0xFF5A6675)
-                                            : RetroTheme.textSecondary,
+                              child: ValueListenableBuilder<String?>(
+                                valueListenable: store.getTypingNotifier(item.peerId),
+                                builder: (context, typingText, _) {
+                                  if (typingText != null && typingText.isNotEmpty) {
+                                    return Text(
+                                      typingText,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: RetroTheme.vkBlue,
                                         fontSize: 13.5,
+                                        fontStyle: FontStyle.italic,
                                       ),
+                                    );
+                                  }
+                                  return RichText(
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    text: TextSpan(
+                                      children: [
+                                        if (senderPrefix != null)
+                                          TextSpan(
+                                            text: senderPrefix,
+                                            style: TextStyle(
+                                              color: isOut
+                                                  ? const Color(0xFF4A6B8D)
+                                                  : RetroTheme.textPrimary,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13.5,
+                                            ),
+                                          ),
+                                        TextSpan(
+                                          text: lastMsg.action != null
+                                              ? lastMsg.formatActionText(
+                                                  currentUserId: widget.account.userId,
+                                                  userCache: store.userCache,
+                                                )
+                                              : lastMsg.previewText,
+                                          style: TextStyle(
+                                            color: lastMsg.action != null
+                                                ? const Color(0xFF55677D)
+                                                : (isOut
+                                                    ? const Color(0xFF5A6675)
+                                                    : RetroTheme.textSecondary),
+                                            fontSize: 13.5,
+                                            fontStyle: lastMsg.action != null
+                                                ? FontStyle.italic
+                                                : FontStyle.normal,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                ),
+                                  );
+                                },
                               ),
                             ),
                             const SizedBox(width: 6),
@@ -742,6 +928,7 @@ class _MessagesViewState extends State<MessagesView> {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 }

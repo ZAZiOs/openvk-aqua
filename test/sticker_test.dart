@@ -121,6 +121,15 @@ void main() {
           home: Scaffold(
             body: ChatConversationView(
               client: client,
+              account: const SavedAccount(
+                id: 1,
+                instanceId: 1,
+                userId: 1,
+                name: 'User',
+                avatarUrl: '',
+                accessToken: 'tok',
+                isActive: true,
+              ),
               conversation: conversation,
               title: 'Тестовая беседа',
               avatarUrl: null,

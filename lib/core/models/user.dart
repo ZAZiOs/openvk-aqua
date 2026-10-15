@@ -38,6 +38,8 @@ class User {
   final String photo100;
   final bool isOnline;
   final bool isGroup;
+  final int sex;
+  final int? customGenderType;
 
   // Extended profile fields
   final String nickname;
@@ -67,6 +69,8 @@ class User {
     required this.photo100,
     required this.isOnline,
     this.isGroup = false,
+    this.sex = 0,
+    this.customGenderType,
     this.nickname = '',
     this.screenName = '',
     this.status = '',
@@ -86,6 +90,30 @@ class User {
     this.about = '',
     this.counters = const UserCounters(),
   });
+
+  int get genderType {
+    if (customGenderType != null) return customGenderType!;
+    return resolveGenderType(sex: sex, pronouns: pronouns);
+  }
+
+  static int resolveGenderType({int? sex, String? pronouns}) {
+    if (pronouns != null && pronouns.isNotEmpty) {
+      final p = pronouns.trim().toLowerCase();
+      if (p == '1' || p.contains('она') || p.contains('she')) return 1;
+      if (p == '0' || p.contains('они') || p.contains('they')) return 0;
+      if (p == '2' || p.contains('он') || p.contains('he')) return 2;
+      final parsed = int.tryParse(p);
+      if (parsed != null && parsed >= 0 && parsed <= 2) return parsed;
+    }
+
+    if (sex != null) {
+      if (sex == 2) return 2; // OpenVK / VK API: 2 - мужской
+      if (sex == 1) return 1; // OpenVK / VK API: 1 - женский
+      if (sex == 0) return 0; // OpenVK / VK API: 0 - неизвестен
+    }
+
+    return 0; // Default: 0 - неизвестен
+  }
 
   String get fullName => '$firstName $lastName'.trim();
 
@@ -166,10 +194,41 @@ class User {
       (personal != null ? personal['telegram'] : null),
     );
 
-    // Pronouns
-    String pronounsStr = JsonSafe.toStr(
-      json['pronouns'] ?? (personal != null ? personal['pronouns'] : null),
-    );
+    // Pronouns & Gender
+    final Map<String, dynamic>? personalMap = json['personal'] is Map
+        ? Map<String, dynamic>.from(json['personal'] as Map)
+        : null;
+    final dynamic rawPronouns = json['pronouns'] ??
+        json['pronoun'] ??
+        json['personal_pronouns'] ??
+        (personalMap != null
+            ? (personalMap['pronouns'] ?? personalMap['pronoun'] ?? personalMap['personal_pronouns'])
+            : null);
+    final String pronounsStr = JsonSafe.toStr(rawPronouns);
+    final dynamic rawSex = json['sex'] ?? json['gender'] ?? json['gender_type'];
+    final int? sexInt = rawSex != null ? JsonSafe.toInt(rawSex, 0) : null;
+
+    int? resolvedGender;
+    if (rawPronouns != null && pronounsStr.isNotEmpty) {
+      final pStr = pronounsStr.trim().toLowerCase();
+      if (pStr == '1' || pStr.contains('она') || pStr.contains('she')) {
+        resolvedGender = 1;
+      } else if (pStr == '0' || pStr.contains('они') || pStr.contains('they')) {
+        resolvedGender = 0;
+      } else if (pStr == '2' || pStr.contains('он') || pStr.contains('he')) {
+        resolvedGender = 2;
+      }
+    }
+    if (resolvedGender == null && rawSex != null) {
+      final s = JsonSafe.toInt(rawSex, 0);
+      if (s == 2) {
+        resolvedGender = 2;
+      } else if (s == 1) {
+        resolvedGender = 1;
+      } else if (s == 0) {
+        resolvedGender = 0;
+      }
+    }
 
     // Registration date
     String regDateStr = JsonSafe.toStr(
@@ -188,6 +247,8 @@ class User {
       ),
       isOnline: JsonSafe.toBool(json['online']),
       isGroup: false,
+      sex: sexInt ?? 0,
+      customGenderType: resolvedGender,
       nickname: JsonSafe.toStr(json['nickname']),
       screenName: JsonSafe.toStr(json['screen_name'] ?? json['domain']),
       status: JsonSafe.toStr(json['status'] ?? json['activity']),

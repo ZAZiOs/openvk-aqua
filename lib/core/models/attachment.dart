@@ -7,6 +7,7 @@ class Attachment {
   final VideoAttachment? video;
   final DocAttachment? doc;
   final StickerAttachment? sticker;
+  final GiftAttachment? gift;
 
   const Attachment({
     required this.type,
@@ -15,6 +16,7 @@ class Attachment {
     this.video,
     this.doc,
     this.sticker,
+    this.gift,
   });
 
   factory Attachment.fromJson(Map<String, dynamic> json) {
@@ -28,6 +30,7 @@ class Attachment {
       video: type == 'video' ? VideoAttachment.fromJson(map) : null,
       doc: type == 'doc' ? DocAttachment.fromJson(map) : null,
       sticker: type == 'sticker' ? StickerAttachment.fromJson(map) : null,
+      gift: type == 'gift' ? GiftAttachment.fromJson(map) : null,
     );
   }
 
@@ -38,6 +41,7 @@ class Attachment {
       'video' => '[Видеозапись]',
       'doc' => '[Документ]',
       'sticker' => '[Стикер]',
+      'gift' => '[Подарок]',
       'wall' => '[Запись на стене]',
       'link' => '[Ссылка]',
       _ => '[Вложение]',
@@ -225,6 +229,54 @@ class StickerAttachment {
       productId: JsonSafe.toInt(json['product_id']),
       animationUrl: JsonSafe.toStr(json['animation_url']),
       images: images,
+    );
+  }
+}
+
+class GiftAttachment {
+  final int id;
+  final String message;
+  final int date;
+  final int privacy;
+  final int giftId;
+  final int? stickersProductId;
+  final String thumb256;
+  final String thumb96;
+  final String thumb48;
+
+  const GiftAttachment({
+    required this.id,
+    this.message = '',
+    this.date = 0,
+    this.privacy = 0,
+    required this.giftId,
+    this.stickersProductId,
+    required this.thumb256,
+    required this.thumb96,
+    required this.thumb48,
+  });
+
+  String get bestThumb {
+    if (thumb256.isNotEmpty) return thumb256;
+    if (thumb96.isNotEmpty) return thumb96;
+    if (thumb48.isNotEmpty) return thumb48;
+    return '';
+  }
+
+  factory GiftAttachment.fromJson(Map<String, dynamic> json) {
+    final inner = json['gift'] is Map ? JsonSafe.toMap(json['gift']) : json;
+    return GiftAttachment(
+      id: JsonSafe.toInt(json['id']),
+      message: JsonSafe.toStr(json['message']),
+      date: JsonSafe.toInt(json['date']),
+      privacy: JsonSafe.toInt(json['privacy']),
+      giftId: JsonSafe.toInt(inner['id']),
+      stickersProductId: inner['stickers_product_id'] != null
+          ? JsonSafe.toInt(inner['stickers_product_id'])
+          : null,
+      thumb256: JsonSafe.toStr(inner['thumb_256'] ?? inner['thumb_512'] ?? inner['photo_256'] ?? inner['url']),
+      thumb96: JsonSafe.toStr(inner['thumb_96'] ?? inner['photo_96']),
+      thumb48: JsonSafe.toStr(inner['thumb_48'] ?? inner['photo_48']),
     );
   }
 }

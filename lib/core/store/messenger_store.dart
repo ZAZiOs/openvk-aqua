@@ -11,6 +11,7 @@ import '../models/group.dart';
 import '../models/history_response.dart';
 import '../models/message.dart';
 import '../models/user.dart';
+import '../utils/json_safe.dart';
 
 typedef FetchMessagesCallback = Future<List<Message>> Function(List<int> messageIds);
 
@@ -26,6 +27,12 @@ class MessengerStore {
   final Map<int, ValueNotifier<List<int>>> _chatMessageOrders = {};
   final Map<int, ValueNotifier<Message>> _messageNotifiers = {};
 
+  final Map<int, Set<int>> _activeTypingUsers = {};
+  final Map<int, int> _activeTypingTotalCounts = {};
+  final Map<int, Map<int, Timer>> _typingUserTimers = {};
+  final Map<int, Timer> _peerGeneralTypingTimers = {};
+  final Map<int, ValueNotifier<String?>> _typingNotifiers = {};
+
   final Set<int> _pendingMessageIds = {};
   final Set<int> _inFlightMessageIds = {};
   final Set<int> _failedMessageIds = {};
@@ -36,7 +43,17 @@ class MessengerStore {
   MessengerStore({
     UserCache? userCache,
     this.fetchMessagesHandler,
-  }) : userCache = userCache ?? UserCache();
+  }) : userCache = userCache ?? UserCache() {
+    this.userCache.revision.addListener(_onUserCacheRevisionChanged);
+  }
+
+  void _onUserCacheRevisionChanged() {
+    for (final peerId in _activeTypingUsers.keys) {
+      if (_activeTypingUsers[peerId]?.isNotEmpty ?? false) {
+        _updateTypingNotifier(peerId);
+      }
+    }
+  }
 
   Map<int, User> get profiles => userCache.users;
   Map<int, Group> get groups => userCache.groups;
@@ -56,6 +73,30 @@ class MessengerStore {
       _conversationNotifiers[item.peerId] = ValueNotifier<ConversationItem>(item);
     }
     return _conversationNotifiers[item.peerId]!;
+  }
+
+  void unpinMessage(int peerId) {
+    final notifier = _conversationNotifiers[peerId];
+    if (notifier != null) {
+      final current = notifier.value;
+      final newChatSettings = current.chatSettings?.copyWith(clearPinnedMessage: true);
+      notifier.value = current.copyWith(
+        chatSettings: newChatSettings,
+        clearPinnedMessage: true,
+      );
+    }
+  }
+
+  void setPinnedMessage(int peerId, Message pinned) {
+    final notifier = _conversationNotifiers[peerId];
+    if (notifier != null) {
+      final current = notifier.value;
+      final newChatSettings = current.chatSettings?.copyWith(pinnedMessage: pinned);
+      notifier.value = current.copyWith(
+        chatSettings: newChatSettings,
+        pinnedMessage: pinned,
+      );
+    }
   }
 
   ValueNotifier<List<int>> getChatMessageOrderNotifier(int peerId) {
@@ -363,12 +404,58 @@ class MessengerStore {
 
     final parsedAttachments = _parseAttachments(attachments);
 
+    MessageAction? parsedAction;
+    if (extraFields != null &&
+        extraFields.containsKey('action') &&
+        extraFields['action'] is Map) {
+      parsedAction =
+          MessageAction.fromJson(JsonSafe.toMap(extraFields['action']));
+    } else if (attachments != null &&
+        attachments.containsKey('action') &&
+        attachments['action'] is Map) {
+      parsedAction =
+          MessageAction.fromJson(JsonSafe.toMap(attachments['action']));
+    } else {
+      final actType = extraFields?['source_act']?.toString() ??
+          attachments?['source_act']?.toString() ??
+          extraFields?['act']?.toString() ??
+          attachments?['act']?.toString();
+      if (actType != null && actType.isNotEmpty) {
+        final mid = int.tryParse((extraFields?['source_mid'] ??
+                attachments?['source_mid'] ??
+                extraFields?['mid'] ??
+                attachments?['mid'] ??
+                '0')
+            .toString()) ??
+            0;
+        final actText = (extraFields?['source_text'] ??
+                attachments?['source_text'] ??
+                extraFields?['source_old_text'] ??
+                attachments?['source_old_text'] ??
+                text)
+            .toString();
+        parsedAction = MessageAction(
+          type: actType,
+          memberId: mid,
+          text: (actText == '...' || actText == text)
+              ? (actType == 'chat_create' || actType == 'chat_title_update' ? text : '')
+              : actText,
+        );
+      }
+    }
+
+    if (parsedAction != null &&
+        parsedAction.memberId > 0 &&
+        !userCache.hasUser(parsedAction.memberId)) {
+      userCache.requestUser(parsedAction.memberId);
+    }
+
     final newMessage = Message(
       id: messageId,
       date: timestamp,
       peerId: peerId,
       fromId: parsedFromId,
-      text: text,
+      text: parsedAction != null && text == '...' ? '' : text,
       isOut: isOut,
       isImportant: isImportant,
       isUnread: isUnread,
@@ -376,11 +463,26 @@ class MessengerStore {
       fwdMessages: const [],
       replyMessage: resolvedReply,
       replyMessageId: detectedReplyId,
+      action: parsedAction,
       conversationMessageId: conversationMessageId ?? 0,
       updateTime: timestamp,
     );
 
     putMessage(newMessage);
+
+    if (_activeTypingUsers.containsKey(peerId)) {
+      if (parsedFromId != 0) {
+        _activeTypingUsers[peerId]?.remove(parsedFromId);
+        _typingUserTimers[peerId]?[parsedFromId]?.cancel();
+        _typingUserTimers[peerId]?.remove(parsedFromId);
+      }
+      if (_activeTypingUsers[peerId]?.isEmpty ?? true) {
+        _activeTypingTotalCounts.remove(peerId);
+        _peerGeneralTypingTimers[peerId]?.cancel();
+        _peerGeneralTypingTimers.remove(peerId);
+      }
+      _updateTypingNotifier(peerId);
+    }
 
     debugPrint(
         '[MessengerStore] 📝 onNewMessage: peerId=$peerId, msgId=$messageId, fromId=$parsedFromId, replyId=$detectedReplyId, text="$text", preview="${newMessage.previewText}"');
@@ -524,6 +626,125 @@ class MessengerStore {
     totalUnreadCount.value = count;
   }
 
+  ValueNotifier<String?> getTypingNotifier(int peerId) {
+    return _typingNotifiers.putIfAbsent(
+      peerId,
+      () => ValueNotifier<String?>(_computeTypingText(peerId)),
+    );
+  }
+
+  void onUserTyping({
+    required int peerId,
+    required List<int> userIds,
+    int totalCount = 0,
+  }) {
+    final newSet = userIds.where((id) => id != 0).toSet();
+    final currentSet = _activeTypingUsers.putIfAbsent(peerId, () => <int>{});
+
+    final removedUsers = currentSet.difference(newSet);
+    for (final uid in removedUsers) {
+      _typingUserTimers[peerId]?[uid]?.cancel();
+      _typingUserTimers[peerId]?.remove(uid);
+    }
+
+    currentSet.clear();
+    currentSet.addAll(newSet);
+
+    _peerGeneralTypingTimers[peerId]?.cancel();
+    _activeTypingTotalCounts[peerId] = max(totalCount, newSet.length);
+
+    for (final uid in newSet) {
+      if (uid > 0 && !userCache.hasUser(uid)) {
+        userCache.requestUser(uid);
+      } else if (uid < 0 && !userCache.hasGroup(uid.abs())) {
+        userCache.requestGroup(uid.abs());
+      }
+
+      _typingUserTimers.putIfAbsent(peerId, () => {})[uid]?.cancel();
+      _typingUserTimers[peerId]![uid] = Timer(const Duration(seconds: 6), () {
+        _activeTypingUsers[peerId]?.remove(uid);
+        _typingUserTimers[peerId]?.remove(uid);
+        if (_activeTypingUsers[peerId]?.isEmpty ?? true) {
+          _activeTypingTotalCounts.remove(peerId);
+        }
+        _updateTypingNotifier(peerId);
+      });
+    }
+
+    _peerGeneralTypingTimers[peerId] = Timer(const Duration(seconds: 6), () {
+      _activeTypingTotalCounts.remove(peerId);
+      _activeTypingUsers[peerId]?.clear();
+      final timers = _typingUserTimers[peerId];
+      if (timers != null) {
+        for (final t in timers.values) {
+          t.cancel();
+        }
+        timers.clear();
+      }
+      _updateTypingNotifier(peerId);
+    });
+
+    _updateTypingNotifier(peerId);
+  }
+
+  String? _computeTypingText(int peerId) {
+    final users = _activeTypingUsers[peerId]?.toList() ?? const [];
+    final count = max(_activeTypingTotalCounts[peerId] ?? 0, users.length);
+
+    if (count <= 0 && users.isEmpty) {
+      return null;
+    }
+
+    if (count > 3) {
+      return 'несколько человек печатает...';
+    }
+
+    final names = users.map((uid) => _getUserDisplayName(uid)).toList();
+    if (names.isEmpty) {
+      return 'печатает...';
+    }
+
+    if (names.length == 1) {
+      return '${names[0]} печатает...';
+    } else if (names.length == 2) {
+      return '${names[0]} и ${names[1]} печатает...';
+    } else if (names.length == 3) {
+      return '${names[0]}, ${names[1]} и ${names[2]} печатает...';
+    } else {
+      return 'несколько человек печатает...';
+    }
+  }
+
+  String _getUserDisplayName(int userId) {
+    if (userId > 0) {
+      final user = userCache.getUser(userId);
+      if (user != null) {
+        if (user.firstName.trim().isNotEmpty) {
+          return user.firstName.trim();
+        }
+        if (user.fullName.trim().isNotEmpty) {
+          return user.fullName.trim();
+        }
+      }
+      return 'id$userId';
+    } else if (userId < 0) {
+      final group = userCache.getGroup(userId.abs());
+      if (group != null && group.name.trim().isNotEmpty) {
+        return group.name.trim();
+      }
+      return 'Сообщество';
+    }
+    return 'Кто-то';
+  }
+
+  void _updateTypingNotifier(int peerId) {
+    final text = _computeTypingText(peerId);
+    final notifier = _typingNotifiers[peerId];
+    if (notifier != null) {
+      notifier.value = text;
+    }
+  }
+
   String getTitle(ConversationItem item) => userCache.getTitle(item);
 
   String? getAvatarUrl(ConversationItem item) => userCache.getAvatarUrl(item);
@@ -617,6 +838,21 @@ class MessengerStore {
     _inFlightMessageIds.clear();
     _failedMessageIds.clear();
     _batchMessageTimer?.cancel();
+    for (final timers in _typingUserTimers.values) {
+      for (final t in timers.values) {
+        t.cancel();
+      }
+    }
+    _typingUserTimers.clear();
+    for (final t in _peerGeneralTypingTimers.values) {
+      t.cancel();
+    }
+    _peerGeneralTypingTimers.clear();
+    _activeTypingUsers.clear();
+    _activeTypingTotalCounts.clear();
+    for (final notifier in _typingNotifiers.values) {
+      notifier.value = null;
+    }
     userCache.clear();
   }
 }

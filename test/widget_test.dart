@@ -53,7 +53,7 @@ void main() {
     );
 
     expect(find.byType(RetroAppBar), findsOneWidget);
-    expect(find.text('тест openvk'), findsOneWidget);
+    expect(find.text('Павел Дуров'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

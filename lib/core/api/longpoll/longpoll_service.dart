@@ -195,7 +195,7 @@ class LongPollService {
       if (rawUpdate is! List || rawUpdate.isEmpty) continue;
       final code = JsonSafe.toInt(rawUpdate[0]);
 
-      debugPrint('[LongPollService] 📦 Raw Update [код $code]: $rawUpdate');
+      debugPrint('[LongPollService] Raw Update [$code]: $rawUpdate');
 
       switch (code) {
         case 4:
@@ -252,6 +252,15 @@ class LongPollService {
               }
             }
 
+            if (convMsgId == null || convMsgId == 0) {
+              convMsgId = JsonSafe.toInt(
+                attachments?['conversation_message_id'] ??
+                    attachments?['cmid'] ??
+                    extraFields?['conversation_message_id'] ??
+                    extraFields?['cmid'],
+              );
+            }
+
             final isOut = (flags & 2) != 0;
             final isUnread = (flags & 1) != 0;
 
@@ -276,9 +285,11 @@ class LongPollService {
             if (!isOut) {
               final conv = store.getConversationNotifier(peerId)?.value;
               final title = conv != null ? store.getTitle(conv) : 'Новое сообщение';
-              final fromId = extraFields != null && extraFields.containsKey('from')
+              final fromId = (extraFields != null && extraFields.containsKey('from'))
                   ? JsonSafe.toInt(extraFields['from'])
-                  : peerId;
+                  : (attachments != null && attachments.containsKey('from')
+                      ? JsonSafe.toInt(attachments['from'])
+                      : peerId);
 
               _notificationsController.add(
                 LongPollNotificationEvent(
@@ -357,8 +368,92 @@ class LongPollService {
           }
           break;
 
+        case 61:
+          // [61, $user_id, $flags]
+          if (rawUpdate.length > 1) {
+            final userId = JsonSafe.toInt(rawUpdate[1]);
+            debugPrint('[LongPollService] Событие 61 (Печатание в диалоге): userId=$userId');
+            store.onUserTyping(
+              peerId: userId,
+              userIds: [userId],
+              totalCount: 1,
+            );
+          }
+          break;
+
+        case 62:
+          // [62, $user_id, $chat_id]
+          if (rawUpdate.length > 2) {
+            final userId = JsonSafe.toInt(rawUpdate[1]);
+            final chatId = JsonSafe.toInt(rawUpdate[2]);
+            final peerId = 2000000000 + chatId;
+            debugPrint('[LongPollService] Событие 62 (Печатание в беседе): userId=$userId, chatId=$chatId, peerId=$peerId');
+            store.onUserTyping(
+              peerId: peerId,
+              userIds: [userId],
+              totalCount: 1,
+            );
+          }
+          break;
+
+        case 63:
+          // [63, $peer_id, $user_ids, $total_count, $ts]
+          if (rawUpdate.length > 2) {
+            final peerId = JsonSafe.toInt(rawUpdate[1]);
+            final rawUserIds = rawUpdate[2];
+            final List<int> userIds = [];
+            if (rawUserIds is List) {
+              for (final item in rawUserIds) {
+                final id = JsonSafe.toInt(item);
+                if (id != 0) userIds.add(id);
+              }
+            } else {
+              final id = JsonSafe.toInt(rawUserIds);
+              if (id != 0) userIds.add(id);
+            }
+            final totalCount = rawUpdate.length > 3
+                ? JsonSafe.toInt(rawUpdate[3])
+                : userIds.length;
+            debugPrint(
+                '[LongPollService] Событие 63 (Печатание в чате): peerId=$peerId, userIds=$userIds, totalCount=$totalCount');
+            store.onUserTyping(
+              peerId: peerId,
+              userIds: userIds,
+              totalCount: totalCount,
+            );
+          }
+          break;
+
+        case 64:
+          // [64, $peer_id, $user_ids, $total_count, $ts]
+          if (rawUpdate.length > 2) {
+            final peerId = JsonSafe.toInt(rawUpdate[1]);
+            final rawUserIds = rawUpdate[2];
+            final List<int> userIds = [];
+            if (rawUserIds is List) {
+              for (final item in rawUserIds) {
+                final id = JsonSafe.toInt(item);
+                if (id != 0) userIds.add(id);
+              }
+            } else {
+              final id = JsonSafe.toInt(rawUserIds);
+              if (id != 0) userIds.add(id);
+            }
+            final totalCount = rawUpdate.length > 3
+                ? JsonSafe.toInt(rawUpdate[3])
+                : userIds.length;
+            debugPrint(
+                '[LongPollService] Событие 64 (Запись аудио/печатание): peerId=$peerId, userIds=$userIds, totalCount=$totalCount');
+            store.onUserTyping(
+              peerId: peerId,
+              userIds: userIds,
+              totalCount: totalCount,
+            );
+          }
+          break;
+
         default:
-          debugPrint('[LongPollService] ℹСобытие $code: $rawUpdate');
+          debugPrint('[LongPollService] Событие $code: $rawUpdate');
           break;
       }
     }

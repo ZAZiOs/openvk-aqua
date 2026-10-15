@@ -11,6 +11,7 @@ class ConversationItem {
   final bool isUnanswered;
   final ChatSettings? chatSettings;
   final Message lastMessage;
+  final Message? pinnedMessage;
 
   const ConversationItem({
     required this.peerId,
@@ -22,6 +23,7 @@ class ConversationItem {
     required this.isUnanswered,
     this.chatSettings,
     required this.lastMessage,
+    this.pinnedMessage,
   });
 
   bool get isChat => peerType == 'chat' || peerId > 2000000000;
@@ -29,6 +31,8 @@ class ConversationItem {
   bool get isGroup => peerType == 'group' || peerId < 0;
 
   bool get isOutRead => lastMessage.isOut && lastMessage.id <= outRead;
+
+  Message? get activePinnedMessage => pinnedMessage ?? chatSettings?.pinnedMessage;
 
   ConversationItem copyWith({
     int? peerId,
@@ -40,6 +44,8 @@ class ConversationItem {
     bool? isUnanswered,
     ChatSettings? chatSettings,
     Message? lastMessage,
+    Message? pinnedMessage,
+    bool clearPinnedMessage = false,
   }) {
     return ConversationItem(
       peerId: peerId ?? this.peerId,
@@ -51,6 +57,7 @@ class ConversationItem {
       isUnanswered: isUnanswered ?? this.isUnanswered,
       chatSettings: chatSettings ?? this.chatSettings,
       lastMessage: lastMessage ?? this.lastMessage,
+      pinnedMessage: clearPinnedMessage ? null : (pinnedMessage ?? this.pinnedMessage),
     );
   }
 
@@ -58,6 +65,15 @@ class ConversationItem {
     final conv = JsonSafe.toMap(json['conversation']);
     final peer = JsonSafe.toMap(conv['peer']);
     final lastMsgMap = JsonSafe.toMap(json['last_message']);
+    final chatSettings = conv['chat_settings'] != null
+        ? ChatSettings.fromJson(JsonSafe.toMap(conv['chat_settings']))
+        : null;
+
+    final convPinned = conv['pinned_message'] is Map
+        ? Message.fromJson(Map<String, dynamic>.from(conv['pinned_message'] as Map))
+        : (json['pinned_message'] is Map
+            ? Message.fromJson(Map<String, dynamic>.from(json['pinned_message'] as Map))
+            : null);
 
     return ConversationItem(
       peerId: JsonSafe.toInt(peer['id']),
@@ -67,10 +83,9 @@ class ConversationItem {
       unreadCount: JsonSafe.toInt(conv['unread_count']),
       isImportant: JsonSafe.toBool(conv['important']),
       isUnanswered: JsonSafe.toBool(conv['unanswered']),
-      chatSettings: conv['chat_settings'] != null
-          ? ChatSettings.fromJson(JsonSafe.toMap(conv['chat_settings']))
-          : null,
+      chatSettings: chatSettings,
       lastMessage: Message.fromJson(lastMsgMap),
+      pinnedMessage: chatSettings?.pinnedMessage ?? convPinned,
     );
   }
 }
@@ -84,6 +99,7 @@ class ChatSettings {
   final String photo200;
   final List<int> activeIds;
   final int adminId;
+  final Message? pinnedMessage;
 
   const ChatSettings({
     required this.title,
@@ -94,6 +110,7 @@ class ChatSettings {
     this.photo200 = '',
     this.activeIds = const [],
     required this.adminId,
+    this.pinnedMessage,
   });
 
   String get photoUrl =>
@@ -101,8 +118,37 @@ class ChatSettings {
 
   bool get hasPhoto => photoUrl.isNotEmpty;
 
+  ChatSettings copyWith({
+    String? title,
+    int? membersCount,
+    String? state,
+    String? photo50,
+    String? photo100,
+    String? photo200,
+    List<int>? activeIds,
+    int? adminId,
+    Message? pinnedMessage,
+    bool clearPinnedMessage = false,
+  }) {
+    return ChatSettings(
+      title: title ?? this.title,
+      membersCount: membersCount ?? this.membersCount,
+      state: state ?? this.state,
+      photo50: photo50 ?? this.photo50,
+      photo100: photo100 ?? this.photo100,
+      photo200: photo200 ?? this.photo200,
+      activeIds: activeIds ?? this.activeIds,
+      adminId: adminId ?? this.adminId,
+      pinnedMessage: clearPinnedMessage ? null : (pinnedMessage ?? this.pinnedMessage),
+    );
+  }
+
   factory ChatSettings.fromJson(Map<String, dynamic> json) {
     final photo = JsonSafe.toMap(json['photo']);
+    final pinned = json['pinned_message'] is Map
+        ? Message.fromJson(Map<String, dynamic>.from(json['pinned_message'] as Map))
+        : null;
+
     return ChatSettings(
       title: JsonSafe.toStr(json['title'], 'Беседа'),
       membersCount: JsonSafe.toInt(json['members_count']),
@@ -112,6 +158,7 @@ class ChatSettings {
       photo200: JsonSafe.toStr(photo['photo_200']),
       activeIds: JsonSafe.toList(json['active_ids'], (id) => JsonSafe.toInt(id)),
       adminId: JsonSafe.toInt(json['admin_id']),
+      pinnedMessage: pinned,
     );
   }
 }

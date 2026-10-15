@@ -37,13 +37,17 @@ class RetroAttachmentGrid extends StatelessWidget {
     final stickerAttachments =
         attachments.where((a) => a.type == 'sticker').toList();
 
+    final giftAttachments =
+        attachments.where((a) => a.type == 'gift').toList();
+
     final otherAttachments = attachments
         .where((a) =>
             a.type != 'photo' &&
             a.type != 'video' &&
             a.type != 'audio' &&
             a.type != 'doc' &&
-            a.type != 'sticker')
+            a.type != 'sticker' &&
+            a.type != 'gift')
         .toList();
 
     return Container(
@@ -70,14 +74,91 @@ class RetroAttachmentGrid extends StatelessWidget {
               const SizedBox(height: 6),
             ...stickerAttachments.map((s) => _buildStickerRow(context, s)),
           ],
-          if (otherAttachments.isNotEmpty) ...[
+          if (giftAttachments.isNotEmpty) ...[
             if (visualAttachments.isNotEmpty ||
                 audioAttachments.isNotEmpty ||
                 docAttachments.isNotEmpty ||
                 stickerAttachments.isNotEmpty)
               const SizedBox(height: 6),
+            ...giftAttachments.map((g) => _buildGiftRow(context, g)),
+          ],
+          if (otherAttachments.isNotEmpty) ...[
+            if (visualAttachments.isNotEmpty ||
+                audioAttachments.isNotEmpty ||
+                docAttachments.isNotEmpty ||
+                stickerAttachments.isNotEmpty ||
+                giftAttachments.isNotEmpty)
+              const SizedBox(height: 6),
             ...otherAttachments.map((o) => _buildGenericRow(context, o)),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGiftRow(BuildContext context, Attachment item) {
+    final gift = item.gift;
+    final thumb = gift?.bestThumb ?? '';
+    final message = gift?.message ?? '';
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF9DB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5B83B), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (thumb.isNotEmpty)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(
+                thumb,
+                width: 64,
+                height: 64,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.card_giftcard,
+                  size: 40,
+                  color: Color(0xFFB8860B),
+                ),
+              ),
+            )
+          else
+            const Icon(
+              Icons.card_giftcard,
+              size: 40,
+              color: Color(0xFFB8860B),
+            ),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Подарок',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                    color: Color(0xFF6B4E00),
+                  ),
+                ),
+                if (message.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    message,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF382A02),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
         ],
       ),
     );
