@@ -70,5 +70,21 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Требуется для сохранения фотографий и видеозаписей на устройство.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Требуется для доступа к фото и видео для их отправки и просмотра.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
+		<string>tg</string>
+		<string>vk</string>
+	</array>
 </dict>
 </plist>
