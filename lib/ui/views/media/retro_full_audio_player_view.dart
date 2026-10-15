@@ -6,29 +6,37 @@ import '../../widgets/retro_app_bar.dart';
 class RetroFullAudioPlayerView extends StatefulWidget {
   const RetroFullAudioPlayerView({super.key});
 
-  /// Opens the full-screen player with a smooth slide-up animation.
-  static Future<void> open(BuildContext context) {
-    return Navigator.of(context).push(
-      PageRouteBuilder(
-        opaque: true,
-        transitionDuration: const Duration(milliseconds: 280),
-        reverseTransitionDuration: const Duration(milliseconds: 240),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return const RetroFullAudioPlayerView();
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final tween = Tween<Offset>(
-            begin: const Offset(0.0, 1.0),
-            end: Offset.zero,
-          ).chain(CurveTween(curve: Curves.easeOutCubic));
+  static bool _isOpen = false;
 
-          return SlideTransition(
-            position: animation.drive(tween),
-            child: child,
-          );
-        },
-      ),
-    );
+  /// Opens the full-screen player with a smooth slide-up animation.
+  static Future<void> open(BuildContext context) async {
+    if (_isOpen || !context.mounted) return;
+    _isOpen = true;
+    try {
+      await Navigator.of(context).push(
+        PageRouteBuilder(
+          opaque: true,
+          transitionDuration: const Duration(milliseconds: 280),
+          reverseTransitionDuration: const Duration(milliseconds: 240),
+          pageBuilder: (context, animation, secondaryAnimation) {
+            return const RetroFullAudioPlayerView();
+          },
+          transitionsBuilder: (context, animation, secondaryAnimation, child) {
+            final tween = Tween<Offset>(
+              begin: const Offset(0.0, 1.0),
+              end: Offset.zero,
+            ).chain(CurveTween(curve: Curves.easeOutCubic));
+
+            return SlideTransition(
+              position: animation.drive(tween),
+              child: child,
+            );
+          },
+        ),
+      );
+    } finally {
+      _isOpen = false;
+    }
   }
 
   @override

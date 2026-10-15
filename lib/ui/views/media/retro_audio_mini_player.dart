@@ -15,6 +15,7 @@ class _RetroAudioMiniPlayerState extends State<RetroAudioMiniPlayer> {
   bool _isSeeking = false;
   double _seekFraction = 0.0;
   double _dragStartY = 0.0;
+  bool _dragHandled = false;
 
   String _formatDuration(int seconds) {
     if (seconds <= 0) return '0:00';
@@ -48,16 +49,17 @@ class _RetroAudioMiniPlayerState extends State<RetroAudioMiniPlayer> {
           behavior: HitTestBehavior.opaque,
           onVerticalDragStart: (details) {
             _dragStartY = details.globalPosition.dy;
+            _dragHandled = false;
           },
-          onVerticalDragEnd: (details) {
-            final dy = details.primaryVelocity ?? 0;
-            if (dy < -200) {
+          onVerticalDragUpdate: (details) {
+            if (!_dragHandled && (_dragStartY - details.globalPosition.dy) > 40) {
+              _dragHandled = true;
               RetroFullAudioPlayerView.open(context);
             }
           },
-          onVerticalDragUpdate: (details) {
-            if (_dragStartY - details.globalPosition.dy > 50) {
-              _dragStartY = details.globalPosition.dy;
+          onVerticalDragEnd: (details) {
+            if (!_dragHandled && (details.primaryVelocity ?? 0) < -150) {
+              _dragHandled = true;
               RetroFullAudioPlayerView.open(context);
             }
           },
