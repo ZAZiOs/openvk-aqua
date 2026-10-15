@@ -21,6 +21,7 @@ import '../messages/chat_conversation_view.dart';
 import 'widgets/dotted_leader_row.dart';
 import 'widgets/wall_counters_grid.dart';
 import 'widgets/wall_post_card.dart';
+import '../media/media_view.dart';
 
 class WallView extends StatefulWidget {
   final OpenVkClient client;
@@ -1219,7 +1220,33 @@ class _WallViewState extends State<WallView>
           WallCountersGrid(
             counters: user?.counters ?? const UserCounters(),
             isGroup: _isGroupWall,
-            onCounterTap: (key) {},
+            onCounterTap: (key) {
+              if (key == 'photos') {
+                MediaView.open(
+                  context,
+                  client: widget.client,
+                  account: widget.account,
+                  ownerId: _targetId,
+                  initialTab: MediaTab.photos,
+                );
+              } else if (key == 'videos') {
+                MediaView.open(
+                  context,
+                  client: widget.client,
+                  account: widget.account,
+                  ownerId: _targetId,
+                  initialTab: MediaTab.videos,
+                );
+              } else if (key == 'audios') {
+                MediaView.open(
+                  context,
+                  client: widget.client,
+                  account: widget.account,
+                  ownerId: _targetId,
+                  initialTab: MediaTab.audio,
+                );
+              }
+            },
           ),
 
           if (_isGroupWall) ...[

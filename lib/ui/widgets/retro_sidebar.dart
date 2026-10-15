@@ -10,6 +10,7 @@ enum RetroSection {
   photos('Фотографии'),
   videos('Видеозаписи'),
   audio('Аудиозаписи'),
+  media('Медиа'),
   messages('Сообщения'),
   groups('Группы'),
   news('Новости'),
@@ -30,6 +31,9 @@ enum RetroSection {
         return RetroTab.messages;
       case RetroSection.friends:
         return RetroTab.friends;
+      case RetroSection.media:
+      case RetroSection.photos:
+      case RetroSection.videos:
       case RetroSection.audio:
         return RetroTab.media;
       default:
@@ -48,7 +52,7 @@ enum RetroSection {
       case RetroTab.friends:
         return RetroSection.friends;
       case RetroTab.media:
-        return RetroSection.audio;
+        return RetroSection.media;
     }
   }
 }

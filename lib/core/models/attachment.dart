@@ -130,6 +130,7 @@ class AudioAttachment {
   final String title;
   final int duration;
   final String url;
+  final String? coverUrl;
 
   const AudioAttachment({
     required this.id,
@@ -138,9 +139,27 @@ class AudioAttachment {
     required this.title,
     required this.duration,
     required this.url,
+    this.coverUrl,
   });
 
   factory AudioAttachment.fromJson(Map<String, dynamic> json) {
+    String? cover;
+    final album = json['album'];
+    if (album is Map) {
+      final thumb = album['thumb'];
+      if (thumb is Map) {
+        cover = JsonSafe.toStr(
+          thumb['photo_600'] ?? thumb['photo_300'] ?? thumb['photo_1200'] ?? thumb['photo_68'],
+        );
+      }
+    }
+    if (cover == null || cover.isEmpty) {
+      final rawCover = JsonSafe.toStr(
+        json['cover_url'] ?? json['thumb'] ?? json['photo_300'] ?? json['photo_600'] ?? json['image'],
+      );
+      cover = rawCover.isNotEmpty ? rawCover : null;
+    }
+
     return AudioAttachment(
       id: JsonSafe.toInt(json['id']),
       ownerId: JsonSafe.toInt(json['owner_id']),
@@ -148,6 +167,7 @@ class AudioAttachment {
       title: JsonSafe.toStr(json['title'], 'Без названия'),
       duration: JsonSafe.toInt(json['duration']),
       url: JsonSafe.toStr(json['url']),
+      coverUrl: cover,
     );
   }
 }

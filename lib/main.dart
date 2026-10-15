@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'core/core.dart';
 import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
+import 'ui/views/media/media_view.dart';
+import 'ui/views/media/retro_audio_mini_player.dart';
 import 'ui/views/messages/chat_conversation_view.dart';
 import 'ui/views/messages/messages_view.dart';
 import 'ui/views/newsfeed/newsfeed_view.dart';
@@ -280,6 +282,7 @@ class RetroHomeScreen extends StatefulWidget {
 class _RetroHomeScreenState extends State<RetroHomeScreen>
     with SingleTickerProviderStateMixin {
   RetroSection _currentSection = RetroSection.news;
+  MediaTab _mediaTab = MediaTab.photos;
   String _messagesFilter = 'all';
   String _newsFilter = 'my';
   late final AnimationController _drawerController;
@@ -376,7 +379,19 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
   }
 
   void _onSelectSection(RetroSection section, {required bool isWide}) {
-    setState(() => _currentSection = section);
+    if (section == RetroSection.photos) {
+      _currentSection = RetroSection.media;
+      _mediaTab = MediaTab.photos;
+    } else if (section == RetroSection.videos) {
+      _currentSection = RetroSection.media;
+      _mediaTab = MediaTab.videos;
+    } else if (section == RetroSection.audio) {
+      _currentSection = RetroSection.media;
+      _mediaTab = MediaTab.audio;
+    } else {
+      _currentSection = section;
+    }
+    setState(() {});
     if (!isWide && _drawerController.value > 0) {
       _drawerController.animateTo(
         0.0,
@@ -546,6 +561,10 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     final bool isMessages = _currentSection == RetroSection.messages;
     final bool isWall = _currentSection == RetroSection.profile;
     final bool isNews = _currentSection == RetroSection.news;
+    final bool isMedia = _currentSection == RetroSection.media ||
+        _currentSection == RetroSection.photos ||
+        _currentSection == RetroSection.videos ||
+        _currentSection == RetroSection.audio;
 
     Widget? appBarTitleWidget;
     String? appBarTitle = _currentSection.title;
@@ -607,6 +626,20 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
           onPressed: () => setState(() => _currentSection = RetroSection.settings),
         ),
       ];
+    } else if (isMedia) {
+      appBarTitle = null;
+      appBarTitleWidget = RetroSegmentedControl<MediaTab>(
+        tabs: const {
+          MediaTab.photos: 'Фото',
+          MediaTab.videos: 'Видео',
+          MediaTab.audio: 'Аудио',
+        },
+        selected: _mediaTab,
+        onSelected: (tab) => setState(() => _mediaTab = tab),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        hasShadow: false,
+      );
+      appBarLeading = null;
     } else {
       appBarLeading = null;
     }
@@ -664,26 +697,32 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         },
       ),
       bottomNavigationBar: hideBottomBar
-          ? null
-          : ListenableBuilder(
-              listenable: Listenable.merge([
-                widget.client.messengerStore.totalUnreadCount,
-                widget.client.messengerStore.unreadConversationOrder,
-              ]),
-              builder: (context, _) {
-                final total =
-                    widget.client.messengerStore.totalUnreadCount.value;
-                final orderCount = widget
-                    .client.messengerStore.unreadConversationOrder.value.length;
-                final count = total > 0 ? total : orderCount;
-                return RetroBottomBar(
-                  currentTab: _currentSection.bottomTab,
-                  unreadMessagesCount: count,
-                  onTabSelected: (tab) => setState(
-                    () => _currentSection = RetroSection.fromTab(tab),
-                  ),
-                );
-              },
+          ? const RetroAudioMiniPlayer()
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const RetroAudioMiniPlayer(),
+                ListenableBuilder(
+                  listenable: Listenable.merge([
+                    widget.client.messengerStore.totalUnreadCount,
+                    widget.client.messengerStore.unreadConversationOrder,
+                  ]),
+                  builder: (context, _) {
+                    final total =
+                        widget.client.messengerStore.totalUnreadCount.value;
+                    final orderCount = widget
+                        .client.messengerStore.unreadConversationOrder.value.length;
+                    final count = total > 0 ? total : orderCount;
+                    return RetroBottomBar(
+                      currentTab: _currentSection.bottomTab,
+                      unreadMessagesCount: count,
+                      onTabSelected: (tab) => setState(
+                        () => _currentSection = RetroSection.fromTab(tab),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
     );
   }
@@ -718,6 +757,19 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         account: widget.account,
         filter: _newsFilter,
         onFilterChanged: (filter) => setState(() => _newsFilter = filter),
+      );
+    }
+    if (_currentSection == RetroSection.media ||
+        _currentSection == RetroSection.photos ||
+        _currentSection == RetroSection.videos ||
+        _currentSection == RetroSection.audio) {
+      return MediaView(
+        key: const PageStorageKey('media_view'),
+        client: widget.client,
+        account: widget.account,
+        tab: _mediaTab,
+        onTabChanged: (tab) => setState(() => _mediaTab = tab),
+        hideAppBar: true,
       );
     }
 
