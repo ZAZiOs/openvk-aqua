@@ -42,7 +42,7 @@ void main() async {
   final authHandler = AuthHandler(client: client);
 
   final savedAccount = await authHandler.restoreSession();
-  final isOobeCompleted = await AppDatabase.instance.isOobeCompleted();
+  final isOobeCompleted = false && await AppDatabase.instance.isOobeCompleted();
 
   runApp(
     OpenVkApp(

@@ -26,4 +26,5 @@ export 'services/audio_player_service.dart';
 export 'notifications/notification_dispatcher.dart';
 export 'notifications/notification_payload.dart';
 export 'utils/json_safe.dart';
+export 'utils/download_helper.dart';
 

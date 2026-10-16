@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/models/attachment.dart';
+import '../../core/utils/download_helper.dart';
 import '../views/video/retro_video_player_view.dart';
 import 'retro_loading_indicator.dart';
 
@@ -167,9 +168,10 @@ class _RetroMediaViewerState extends State<RetroMediaViewer> {
 
       Directory? saveDir;
       try {
-        saveDir = await getDownloadsDirectory();
+        saveDir = await DownloadHelper.getOpenVkDownloadDirectory();
       } catch (_) {}
 
+      saveDir ??= await getDownloadsDirectory();
       saveDir ??= await getApplicationDocumentsDirectory();
 
       if (!await saveDir.exists()) {
@@ -189,7 +191,7 @@ class _RetroMediaViewerState extends State<RetroMediaViewer> {
       await targetFile.writeAsBytes(response.bodyBytes);
 
       if (mounted) {
-        _showFeedback('Сохранено в Загрузки:\n${p.basename(targetFile.path)}');
+        _showFeedback('Сохранено в OpenVK:\n${p.basename(targetFile.path)}');
       }
     } catch (e) {
       if (mounted) {
