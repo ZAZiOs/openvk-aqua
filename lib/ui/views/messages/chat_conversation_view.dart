@@ -88,6 +88,15 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  final GlobalKey _listKey = GlobalKey();
+  int? _unreadSeparatorMessageId;
+  bool _hasCalculatedUnreadSeparator = false;
+  bool _hasJumpedToUnread = false;
+
+  int _lastMarkedReadId = 0;
+  int _pendingReadCandidateId = 0;
+  Timer? _markReadDebounceTimer;
+
   bool _isLoading = true;
   bool _isLoadingMore = false;
   bool _isLoadingNewer = false;
@@ -122,14 +131,22 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     super.initState();
     NotificationDispatcher.instance.activePeerId = widget.conversation.peerId;
     _messagesHandler = MessagesHandler(widget.client);
+    _lastMarkedReadId = widget.conversation.inRead;
+    _pendingReadCandidateId = widget.conversation.inRead;
     _scrollController.addListener(_onScroll);
     _loadHistory();
-    _markRead();
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
   }
 
   @override
   void dispose() {
+    _markReadDebounceTimer?.cancel();
+    if (_pendingReadCandidateId > _lastMarkedReadId) {
+      final idToMark = _pendingReadCandidateId;
+      _lastMarkedReadId = idToMark;
+      widget.client.messengerStore.onReadIncoming(widget.conversation.peerId, idToMark);
+      _messagesHandler.markAsRead(peerId: widget.conversation.peerId, startMessageId: idToMark);
+    }
     if (NotificationDispatcher.instance.activePeerId == widget.conversation.peerId) {
       NotificationDispatcher.instance.activePeerId = null;
     }
@@ -166,6 +183,8 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
 
+    _checkVisibleUnreadMessages();
+
     // In reverse ListView: maxScrollExtent is the top of the chat (where older messages are)
     if (pos.pixels >= pos.maxScrollExtent - 250 &&
         !_isLoading &&
@@ -190,14 +209,165 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     }
   }
 
-  Future<void> _markRead() async {
-    if (widget.conversation.unreadCount > 0) {
-      widget.client.messengerStore.onReadIncoming(
-        widget.conversation.peerId,
-        widget.conversation.lastMessage.id,
-      );
-      await _messagesHandler.markAsRead(peerId: widget.conversation.peerId);
+  Widget _buildUnreadSeparator() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Container(
+              height: 1,
+              color: const Color(0xFFB8C2CC),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              'Непрочитанные сообщения',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF6B7B8D),
+                fontSize: 12.5,
+                fontStyle: FontStyle.italic,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Container(
+              height: 1,
+              color: const Color(0xFFB8C2CC),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _checkVisibleUnreadMessages() {
+    if (!mounted || !_scrollController.hasClients) return;
+
+    final listRenderBox = _listKey.currentContext?.findRenderObject() as RenderBox?;
+    if (listRenderBox == null || !listRenderBox.hasSize || !listRenderBox.attached) return;
+
+    final listHeight = listRenderBox.size.height;
+    final orderNotifier = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId);
+    final messageIds = orderNotifier.value;
+    if (messageIds.isEmpty) return;
+
+    int? maxVisibleUnreadId;
+
+    for (final id in messageIds) {
+      final msg = widget.client.messengerStore.getMessage(id);
+      if (msg == null || msg.isOut) continue;
+
+      // Only check unread messages
+      if (id <= _lastMarkedReadId && !msg.isUnread) continue;
+
+      final msgContext = _messageKeys[id]?.currentContext;
+      if (msgContext == null || !msgContext.mounted) continue;
+
+      final msgBox = msgContext.findRenderObject() as RenderBox?;
+      if (msgBox == null || !msgBox.hasSize || !msgBox.attached) continue;
+
+      try {
+        final msgBottomInList = msgBox.localToGlobal(
+          Offset(0, msgBox.size.height),
+          ancestor: listRenderBox,
+        ).dy;
+
+        final isAtBottom = _scrollController.position.pixels <= 10;
+        if (msgBottomInList <= listHeight + 10 || isAtBottom) {
+          if (maxVisibleUnreadId == null || id > maxVisibleUnreadId) {
+            maxVisibleUnreadId = id;
+          }
+        }
+      } catch (_) {}
     }
+
+    if (maxVisibleUnreadId != null && maxVisibleUnreadId > _lastMarkedReadId) {
+      _scheduleMarkAsRead(maxVisibleUnreadId);
+    }
+  }
+
+  void _scheduleMarkAsRead(int targetId) {
+    if (targetId <= _lastMarkedReadId) return;
+
+    _pendingReadCandidateId = max(_pendingReadCandidateId, targetId);
+
+    // Update local store immediately so conversation unread badges and store stay in sync
+    widget.client.messengerStore.onReadIncoming(
+      widget.conversation.peerId,
+      _pendingReadCandidateId,
+    );
+
+    _markReadDebounceTimer?.cancel();
+    _markReadDebounceTimer = Timer(const Duration(milliseconds: 400), () async {
+      final idToMark = _pendingReadCandidateId;
+      if (idToMark <= _lastMarkedReadId) return;
+
+      _lastMarkedReadId = idToMark;
+
+      try {
+        await _messagesHandler.markAsRead(
+          peerId: widget.conversation.peerId,
+          startMessageId: idToMark,
+        );
+      } catch (e) {
+        debugPrint('[ChatConversationView] markAsRead error: $e');
+      }
+    });
+  }
+
+  Future<void> _jumpToUnreadMessage(int targetId) async {
+    if (!mounted || !_scrollController.hasClients) return;
+
+    final orderNotifier = widget.client.messengerStore
+        .getChatMessageOrderNotifier(widget.conversation.peerId);
+    final messageIds = orderNotifier.value;
+    final targetIndex = messageIds.indexOf(targetId);
+    if (targetIndex <= 0) {
+      _checkVisibleUnreadMessages();
+      return;
+    }
+
+    // 1. If already mounted in viewport:
+    final existingContext = _messageKeys[targetId]?.currentContext;
+    if (existingContext != null && existingContext.mounted) {
+      await Scrollable.ensureVisible(
+        existingContext,
+        alignment: 0.85,
+        duration: Duration.zero,
+      );
+      _checkVisibleUnreadMessages();
+      return;
+    }
+
+    // 2. If not mounted, jump near estimated offset in reverse ListView:
+    if (_scrollController.hasClients) {
+      final viewportDim = _scrollController.position.viewportDimension;
+      final estimatedOffset = (targetIndex * 65.0 - viewportDim * 0.15).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      );
+      _scrollController.jumpTo(estimatedOffset);
+      await WidgetsBinding.instance.endOfFrame;
+    }
+
+    if (!mounted) return;
+
+    // 3. Precisely align:
+    final targetContext = _messageKeys[targetId]?.currentContext;
+    if (targetContext != null && targetContext.mounted) {
+      await Scrollable.ensureVisible(
+        targetContext,
+        alignment: 0.85,
+        duration: Duration.zero,
+      );
+    }
+    _checkVisibleUnreadMessages();
   }
 
   Future<void> _loadHistory({bool refresh = false}) async {
@@ -205,11 +375,38 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         .getChatMessageOrderNotifier(widget.conversation.peerId)
         .value;
 
+    if (!_hasCalculatedUnreadSeparator && existingMessages.isNotEmpty) {
+      int? oldestUnreadId;
+      for (final id in existingMessages) {
+        final msg = widget.client.messengerStore.getMessage(id);
+        if (msg != null && !msg.isOut && (id > widget.conversation.inRead || msg.isUnread)) {
+          if (oldestUnreadId == null || id < oldestUnreadId) {
+            oldestUnreadId = id;
+          }
+        }
+      }
+      if (oldestUnreadId != null) {
+        _hasCalculatedUnreadSeparator = true;
+        _unreadSeparatorMessageId = oldestUnreadId;
+        if (!_hasJumpedToUnread) {
+          _hasJumpedToUnread = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _jumpToUnreadMessage(oldestUnreadId!);
+          });
+        }
+      }
+    }
+
     if (existingMessages.isEmpty || refresh) {
-      setState(() {
+      if (mounted) {
+        setState(() {
+          _isLoading = true;
+          _errorMessage = null;
+        });
+      } else {
         _isLoading = true;
         _errorMessage = null;
-      });
+      }
     }
 
     final res = await _messagesHandler.getHistory(
@@ -222,6 +419,26 @@ class _ChatConversationViewState extends State<ChatConversationView> {
 
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
+      final orderNotifier = widget.client.messengerStore
+          .getChatMessageOrderNotifier(widget.conversation.peerId);
+      final currentMessageIds = orderNotifier.value;
+
+      if (!_hasCalculatedUnreadSeparator) {
+        int? oldestUnreadId;
+        for (final id in currentMessageIds) {
+          final msg = widget.client.messengerStore.getMessage(id);
+          if (msg != null && !msg.isOut && (id > widget.conversation.inRead || msg.isUnread)) {
+            if (oldestUnreadId == null || id < oldestUnreadId) {
+              oldestUnreadId = id;
+            }
+          }
+        }
+        if (oldestUnreadId != null) {
+          _hasCalculatedUnreadSeparator = true;
+          _unreadSeparatorMessageId = oldestUnreadId;
+        }
+      }
+
       setState(() {
         _historyOffset = data.items.length;
         _hasMore = _historyOffset < data.count && data.items.isNotEmpty;
@@ -229,6 +446,17 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         _isAtLatest = true;
         _errorMessage = null;
       });
+
+      if (!_hasJumpedToUnread && _unreadSeparatorMessageId != null) {
+        _hasJumpedToUnread = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _jumpToUnreadMessage(_unreadSeparatorMessageId!);
+        });
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _checkVisibleUnreadMessages();
+        });
+      }
     } else {
       setState(() {
         if (existingMessages.isEmpty) {
@@ -935,6 +1163,12 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     return ValueListenableBuilder<List<int>>(
       valueListenable: orderNotifier,
       builder: (context, messageIds, _) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _checkVisibleUnreadMessages();
+          }
+        });
+
         if (_isLoading && messageIds.isEmpty) {
           return const Center(
             child: Column(
@@ -999,107 +1233,115 @@ class _ChatConversationViewState extends State<ChatConversationView> {
             (showBottomLoader ? 1 : 0) +
             (showTopLoader ? 1 : 0);
 
-        return ListView.builder(
-          controller: _scrollController,
-          reverse: true,
-          padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
-          itemCount: totalCount,
-          itemBuilder: (context, index) {
-            // Index 0 in reverse ListView is at the bottom of the scroll
-            if (showBottomLoader && index == 0) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 10),
-                child: Center(
-                  child: RetroLoadingIndicator(size: 20),
-                ),
-              );
-            }
+        return KeyedSubtree(
+          key: _listKey,
+          child: ListView.builder(
+            controller: _scrollController,
+            reverse: true,
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            itemCount: totalCount,
+            itemBuilder: (context, index) {
+              // Index 0 in reverse ListView is at the bottom of the scroll
+              if (showBottomLoader && index == 0) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 10),
+                  child: Center(
+                    child: RetroLoadingIndicator(size: 20),
+                  ),
+                );
+              }
 
-            // Top of the chat (older messages)
-            if (showTopLoader && index == totalCount - 1) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Center(
-                  child: RetroLoadingIndicator(size: 20),
-                ),
-              );
-            }
+              // Top of the chat (older messages)
+              if (showTopLoader && index == totalCount - 1) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 14),
+                  child: Center(
+                    child: RetroLoadingIndicator(size: 20),
+                  ),
+                );
+              }
 
-            final actualIndex = showBottomLoader ? index - 1 : index;
-            final msgId = messageIds[actualIndex];
-            final msgNotifier =
-                widget.client.messengerStore.getMessageNotifier(msgId);
-            if (msgNotifier == null) return const SizedBox.shrink();
+              final actualIndex = showBottomLoader ? index - 1 : index;
+              final msgId = messageIds[actualIndex];
+              final msgNotifier =
+                  widget.client.messengerStore.getMessageNotifier(msgId);
+              if (msgNotifier == null) return const SizedBox.shrink();
 
-            final prevMsgId = actualIndex + 1 < messageIds.length
-                ? messageIds[actualIndex + 1]
-                : null;
-            final nextMsgId =
-                actualIndex - 1 >= 0 ? messageIds[actualIndex - 1] : null;
+              final prevMsgId = actualIndex + 1 < messageIds.length
+                  ? messageIds[actualIndex + 1]
+                  : null;
+              final nextMsgId =
+                  actualIndex - 1 >= 0 ? messageIds[actualIndex - 1] : null;
 
-            final prevMsg = prevMsgId != null
-                ? widget.client.messengerStore.getMessage(prevMsgId)
-                : null;
-            final nextMsg = nextMsgId != null
-                ? widget.client.messengerStore.getMessage(nextMsgId)
-                : null;
+              final prevMsg = prevMsgId != null
+                  ? widget.client.messengerStore.getMessage(prevMsgId)
+                  : null;
+              final nextMsg = nextMsgId != null
+                  ? widget.client.messengerStore.getMessage(nextMsgId)
+                  : null;
 
-            return RepaintBoundary(
-              key: _getKeyForMessage(msgId),
-              child: ValueListenableBuilder<Message>(
-                valueListenable: msgNotifier,
-                builder: (context, message, _) {
-                  final isDifferentDayFromPrev = prevMsg == null ||
-                      !ChatConversationView.isSameDay(message.date, prevMsg.date);
-                  final isDifferentDayFromNext = nextMsg == null ||
-                      !ChatConversationView.isSameDay(message.date, nextMsg.date);
+              final showUnreadSeparator = msgId == _unreadSeparatorMessageId;
 
-                  final isFirstInGroup = isDifferentDayFromPrev ||
-                      prevMsg.fromId != message.fromId ||
-                      prevMsg.isOut != message.isOut ||
-                      prevMsg.isSticker ||
-                      prevMsg.hasGift ||
-                      message.hasGift ||
-                      prevMsg.action != null ||
-                      (message.date - prevMsg.date).abs() > 300;
+              return RepaintBoundary(
+                key: _getKeyForMessage(msgId),
+                child: ValueListenableBuilder<Message>(
+                  valueListenable: msgNotifier,
+                  builder: (context, message, _) {
+                    final isDifferentDayFromPrev = prevMsg == null ||
+                        !ChatConversationView.isSameDay(message.date, prevMsg.date);
+                    final isDifferentDayFromNext = nextMsg == null ||
+                        !ChatConversationView.isSameDay(message.date, nextMsg.date);
 
-                  final isLastInGroup = isDifferentDayFromNext ||
-                      nextMsg.fromId != message.fromId ||
-                      nextMsg.isOut != message.isOut ||
-                      nextMsg.isSticker ||
-                      nextMsg.hasGift ||
-                      message.hasGift ||
-                      nextMsg.action != null ||
-                      (nextMsg.date - message.date).abs() > 300;
+                    final isFirstInGroup = isDifferentDayFromPrev ||
+                        prevMsg.fromId != message.fromId ||
+                        prevMsg.isOut != message.isOut ||
+                        prevMsg.isSticker ||
+                        prevMsg.hasGift ||
+                        message.hasGift ||
+                        prevMsg.action != null ||
+                        (message.date - prevMsg.date).abs() > 300;
 
-                  return ValueListenableBuilder<int>(
-                    valueListenable: widget.client.userCache.revision,
-                    builder: (context, _, child) {
-                      final bubble = _buildMessageBubble(
-                        message,
-                        isWideChat: isWideChat,
-                        isFirstInGroup: isFirstInGroup,
-                        isLastInGroup: isLastInGroup,
-                      );
+                    final isLastInGroup = isDifferentDayFromNext ||
+                        nextMsg.fromId != message.fromId ||
+                        nextMsg.isOut != message.isOut ||
+                        nextMsg.isSticker ||
+                        nextMsg.hasGift ||
+                        message.hasGift ||
+                        nextMsg.action != null ||
+                        (nextMsg.date - message.date).abs() > 300;
 
-                      if (isDifferentDayFromPrev && message.date > 0) {
-                        return Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildDateSeparator(message.date),
-                            bubble,
-                          ],
+                    return ValueListenableBuilder<int>(
+                      valueListenable: widget.client.userCache.revision,
+                      builder: (context, _, child) {
+                        final bubble = _buildMessageBubble(
+                          message,
+                          isWideChat: isWideChat,
+                          isFirstInGroup: isFirstInGroup,
+                          isLastInGroup: isLastInGroup,
                         );
-                      }
 
-                      return bubble;
-                    },
-                  );
-                },
-              ),
-            );
-          },
+                        if ((isDifferentDayFromPrev && message.date > 0) || showUnreadSeparator) {
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (isDifferentDayFromPrev && message.date > 0)
+                                _buildDateSeparator(message.date),
+                              if (showUnreadSeparator)
+                                _buildUnreadSeparator(),
+                              bubble,
+                            ],
+                          );
+                        }
+
+                        return bubble;
+                      },
+                    );
+                  },
+                ),
+              );
+            },
+          ),
         );
       },
     );

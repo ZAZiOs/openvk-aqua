@@ -42,7 +42,7 @@ void main() async {
   final authHandler = AuthHandler(client: client);
 
   final savedAccount = await authHandler.restoreSession();
-  final isOobeCompleted = false && await AppDatabase.instance.isOobeCompleted();
+  final isOobeCompleted = await AppDatabase.instance.isOobeCompleted();
 
   runApp(
     OpenVkApp(
@@ -703,16 +703,10 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
               children: [
                 const RetroAudioMiniPlayer(),
                 ListenableBuilder(
-                  listenable: Listenable.merge([
-                    widget.client.messengerStore.totalUnreadCount,
-                    widget.client.messengerStore.unreadConversationOrder,
-                  ]),
+                  listenable: widget.client.messengerStore.totalUnreadCount,
                   builder: (context, _) {
-                    final total =
+                    final count =
                         widget.client.messengerStore.totalUnreadCount.value;
-                    final orderCount = widget
-                        .client.messengerStore.unreadConversationOrder.value.length;
-                    final count = total > 0 ? total : orderCount;
                     return RetroBottomBar(
                       currentTab: _currentSection.bottomTab,
                       unreadMessagesCount: count,

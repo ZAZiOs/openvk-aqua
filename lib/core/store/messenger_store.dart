@@ -556,25 +556,61 @@ class MessengerStore {
   }
 
   void onReadIncoming(int peerId, int localId) {
-    final convNotifier = _conversationNotifiers[peerId];
-    if (convNotifier != null) {
-      final old = convNotifier.value;
-      final newInRead = max(old.inRead, localId);
-      convNotifier.value = old.copyWith(
-        inRead: newInRead,
-        unreadCount: 0,
-      );
-    }
-
-    final currentUnreadOrder = List<int>.from(unreadConversationOrder.value);
-    if (currentUnreadOrder.remove(peerId)) {
-      unreadConversationOrder.value = currentUnreadOrder;
-      if (totalUnreadCount.value > 0) {
-        totalUnreadCount.value = max(0, totalUnreadCount.value - 1);
+    var effectivePeerId = peerId;
+    var convNotifier = _conversationNotifiers[effectivePeerId];
+    if (convNotifier == null) {
+      if (effectivePeerId > 0 && effectivePeerId < 2000000000 && _conversationNotifiers.containsKey(2000000000 + effectivePeerId)) {
+        effectivePeerId = 2000000000 + effectivePeerId;
+        convNotifier = _conversationNotifiers[effectivePeerId];
+      } else if (effectivePeerId > 2000000000 && _conversationNotifiers.containsKey(effectivePeerId - 2000000000)) {
+        effectivePeerId = effectivePeerId - 2000000000;
+        convNotifier = _conversationNotifiers[effectivePeerId];
       }
     }
 
-    final chatOrder = _chatMessageOrders[peerId];
+    int remainingUnread = 0;
+    if (convNotifier != null) {
+      final old = convNotifier.value;
+      final newInRead = max(old.inRead, localId);
+
+      if (newInRead >= old.lastMessage.id ||
+          (old.lastMessage.conversationMessageId > 0 && newInRead >= old.lastMessage.conversationMessageId)) {
+        remainingUnread = 0;
+      } else {
+        final chatOrder = _chatMessageOrders[effectivePeerId] ?? _chatMessageOrders[peerId];
+        if (chatOrder != null && chatOrder.value.isNotEmpty) {
+          for (final id in chatOrder.value) {
+            final msg = _messageNotifiers[id]?.value;
+            if (msg != null && !msg.isOut && id > newInRead) {
+              remainingUnread++;
+            }
+          }
+        } else {
+          remainingUnread = max(0, old.unreadCount - 1);
+        }
+      }
+
+      convNotifier.value = old.copyWith(
+        inRead: newInRead,
+        unreadCount: remainingUnread,
+      );
+    }
+
+    if (remainingUnread == 0) {
+      final currentUnreadOrder = List<int>.from(unreadConversationOrder.value);
+      bool removed = currentUnreadOrder.remove(effectivePeerId);
+      if (effectivePeerId != peerId) {
+        removed = currentUnreadOrder.remove(peerId) || removed;
+      }
+      if (removed) {
+        unreadConversationOrder.value = currentUnreadOrder;
+        if (totalUnreadCount.value > 0) {
+          totalUnreadCount.value = max(0, totalUnreadCount.value - 1);
+        }
+      }
+    }
+
+    final chatOrder = _chatMessageOrders[effectivePeerId] ?? _chatMessageOrders[peerId];
     if (chatOrder != null) {
       for (final id in chatOrder.value) {
         if (id <= localId) {
@@ -624,6 +660,14 @@ class MessengerStore {
 
   void setTotalUnreadCount(int count) {
     totalUnreadCount.value = count;
+    if (count == 0) {
+      unreadConversationOrder.value = const [];
+      for (final notifier in _conversationNotifiers.values) {
+        if (notifier.value.unreadCount > 0) {
+          notifier.value = notifier.value.copyWith(unreadCount: 0);
+        }
+      }
+    }
   }
 
   ValueNotifier<String?> getTypingNotifier(int peerId) {

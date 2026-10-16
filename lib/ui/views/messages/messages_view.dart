@@ -639,13 +639,13 @@ class _MessagesViewState extends State<MessagesView> {
     );
   }
 
-  void _openChat(ConversationItem item) {
+  Future<void> _openChat(ConversationItem item) async {
     final store = widget.client.messengerStore;
     final title = store.getTitle(item);
     final avatarUrl = store.getAvatarUrl(item);
     final memberAvatars = store.getChatMemberAvatars(item);
 
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (context) => ChatConversationView(
           client: widget.client,
@@ -658,6 +658,10 @@ class _MessagesViewState extends State<MessagesView> {
         ),
       ),
     );
+
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _openUserProfile(int userId) {
