@@ -136,6 +136,86 @@ void main() {
         isNotNull,
       );
     });
+
+    test('appendNewsfeedSegment correctly appends segments and avoids duplicate items', () async {
+      await cache.put(
+        key: 'newsfeed_my',
+        data: {
+          'items': [
+            {'owner_id': 1, 'id': 101, 'text': 'Post 1'},
+            {'owner_id': 1, 'id': 102, 'text': 'Post 2'},
+          ],
+          'profiles': [
+            {'id': 1, 'first_name': 'Ivan'},
+          ],
+          'groups': <dynamic>[],
+          'next_from': 'page_1_token',
+        },
+        instanceId: 'openvk.su',
+        tag: 'newsfeed',
+      );
+
+      // Append segment 2 with one overlapping item (102) and one new item (103)
+      await cache.appendNewsfeedSegment(
+        key: 'newsfeed_my',
+        newSegment: {
+          'items': [
+            {'owner_id': 1, 'id': 102, 'text': 'Post 2 duplicate'},
+            {'owner_id': 2, 'id': 103, 'text': 'Post 3'},
+          ],
+          'profiles': [
+            {'id': 1, 'first_name': 'Ivan'},
+            {'id': 2, 'first_name': 'Anna'},
+          ],
+          'groups': [
+            {'id': 10, 'name': 'Public Group'},
+          ],
+          'next_from': 'page_2_token',
+        },
+        instanceId: 'openvk.su',
+      );
+
+      final cached = await cache.get(key: 'newsfeed_my', instanceId: 'openvk.su');
+      expect(cached, isNotNull);
+      final items = cached['items'] as List;
+      expect(items.length, 3); // 101, 102, 103 (duplicate 102 skipped)
+      expect(items[0]['id'], 101);
+      expect(items[1]['id'], 102);
+      expect(items[2]['id'], 103);
+
+      final profiles = cached['profiles'] as List;
+      expect(profiles.length, 2); // Ivan and Anna
+
+      final groups = cached['groups'] as List;
+      expect(groups.length, 1);
+
+      expect(cached['next_from'], 'page_2_token');
+    });
+
+    test('removePostFromNewsfeedCache removes target post from feed cache', () async {
+      await cache.put(
+        key: 'newsfeed_my',
+        data: {
+          'items': [
+            {'owner_id': 1, 'id': 101, 'text': 'Post 1'},
+            {'owner_id': 1, 'id': 102, 'text': 'Post 2'},
+          ],
+        },
+        instanceId: 'openvk.su',
+        tag: 'newsfeed',
+      );
+
+      await cache.removePostFromNewsfeedCache(
+        ownerId: 1,
+        postId: 101,
+        instanceId: 'openvk.su',
+      );
+
+      final cached = await cache.get(key: 'newsfeed_my', instanceId: 'openvk.su');
+      final items = cached['items'] as List;
+      expect(items.length, 1);
+      expect(items.first['id'], 102);
+    });
   });
 
   group('OpenVkClient + CacheService integration', () {

@@ -184,4 +184,162 @@ class CacheService {
       debugPrint('[CacheService] Ошибка полной очистки кэша: $e');
     }
   }
+
+  /// Appends a new newsfeed segment to an existing cached newsfeed entry for [key].
+  ///
+  /// Merges new items into existing cached items avoiding duplicate posts
+  /// (checked by composite key owner_id:id). Also merges profiles and groups
+  /// and updates the [next_from] pagination cursor.
+  Future<void> appendNewsfeedSegment({
+    required String key,
+    required Map<String, dynamic> newSegment,
+    required String instanceId,
+    Duration ttl = const Duration(hours: 1),
+    String? tag = 'newsfeed',
+    int maxItems = 250,
+  }) async {
+    try {
+      final existingData = await get(
+        key: key,
+        instanceId: instanceId,
+        ignoreTtl: true,
+      );
+
+      if (existingData is! Map) {
+        await put(
+          key: key,
+          data: newSegment,
+          instanceId: instanceId,
+          ttl: ttl,
+          tag: tag,
+        );
+        return;
+      }
+
+      final existingMap = Map<String, dynamic>.from(existingData);
+
+      final existingItems =
+          List<dynamic>.from(existingMap['items'] as List? ?? []);
+      final newItems =
+          List<dynamic>.from(newSegment['items'] as List? ?? []);
+
+      String itemKey(dynamic item) {
+        if (item is Map) {
+          final sourceId = item['source_id'];
+          final ownerId = item['owner_id'] ?? sourceId ?? item['to_id'] ?? 0;
+          final id = item['id'] ?? item['post_id'] ?? 0;
+          return '$ownerId:$id';
+        }
+        return item.toString();
+      }
+
+      final seenItemKeys = <String>{
+        for (final item in existingItems) itemKey(item),
+      };
+
+      for (final item in newItems) {
+        final k = itemKey(item);
+        if (!seenItemKeys.contains(k)) {
+          seenItemKeys.add(k);
+          existingItems.add(item);
+        }
+      }
+
+      if (existingItems.length > maxItems) {
+        existingItems.length = maxItems;
+      }
+
+      final existingProfiles =
+          List<dynamic>.from(existingMap['profiles'] as List? ?? []);
+      final newProfiles =
+          List<dynamic>.from(newSegment['profiles'] as List? ?? []);
+      final seenProfileIds = <dynamic>{
+        for (final p in existingProfiles) if (p is Map) p['id'],
+      };
+      for (final p in newProfiles) {
+        if (p is Map) {
+          final id = p['id'];
+          if (id != null && !seenProfileIds.contains(id)) {
+            seenProfileIds.add(id);
+            existingProfiles.add(p);
+          }
+        }
+      }
+
+      final existingGroups =
+          List<dynamic>.from(existingMap['groups'] as List? ?? []);
+      final newGroups =
+          List<dynamic>.from(newSegment['groups'] as List? ?? []);
+      final seenGroupIds = <dynamic>{
+        for (final g in existingGroups) if (g is Map) g['id'],
+      };
+      for (final g in newGroups) {
+        if (g is Map) {
+          final id = g['id'];
+          if (id != null && !seenGroupIds.contains(id)) {
+            seenGroupIds.add(id);
+            existingGroups.add(g);
+          }
+        }
+      }
+
+      final nextFrom = newSegment['next_from'] ?? existingMap['next_from'];
+
+      final merged = <String, dynamic>{
+        'items': existingItems,
+        'profiles': existingProfiles,
+        'groups': existingGroups,
+        'next_from': ?nextFrom,
+      };
+
+      await put(
+        key: key,
+        data: merged,
+        instanceId: instanceId,
+        ttl: ttl,
+        tag: tag,
+      );
+    } catch (e) {
+      debugPrint('[CacheService] Ошибка appendNewsfeedSegment ($key): $e');
+    }
+  }
+
+  /// Removes a post from newsfeed caches by [ownerId] and [postId].
+  Future<void> removePostFromNewsfeedCache({
+    required int ownerId,
+    required int postId,
+    required String instanceId,
+  }) async {
+    for (final key in const ['newsfeed_my', 'newsfeed_global']) {
+      try {
+        final data =
+            await get(key: key, instanceId: instanceId, ignoreTtl: true);
+        if (data is Map && data['items'] is List) {
+          final items = List<dynamic>.from(data['items'] as List);
+          final initialLen = items.length;
+          items.removeWhere((item) {
+            if (item is Map) {
+              final sOwnerId =
+                  item['owner_id'] ?? item['source_id'] ?? item['to_id'] ?? 0;
+              final sId = item['id'] ?? item['post_id'] ?? 0;
+              return sOwnerId == ownerId && sId == postId;
+            }
+            return false;
+          });
+          if (items.length != initialLen) {
+            final updated = Map<String, dynamic>.from(data);
+            updated['items'] = items;
+            await put(
+              key: key,
+              data: updated,
+              instanceId: instanceId,
+              tag: 'newsfeed',
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('[CacheService] Ошибка удаления поста из кэша ($key): $e');
+      }
+    }
+  }
 }

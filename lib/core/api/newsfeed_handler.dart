@@ -52,6 +52,28 @@ class NewsfeedHandler {
       if (data.groups.isNotEmpty) {
         _client.userCache.putGroups(data.groups);
       }
+
+      if (!isFirstPage && res is ApiSuccess<NewsfeedResponse>) {
+        final rawResponse = res.rawJson;
+        final payload = rawResponse?['response'] is Map
+            ? Map<String, dynamic>.from(rawResponse!['response'] as Map)
+            : (rawResponse != null
+                ? Map<String, dynamic>.from(rawResponse)
+                : null);
+        if (payload != null && payload.isNotEmpty) {
+          try {
+            await _client.cacheService.appendNewsfeedSegment(
+              key: 'newsfeed_my',
+              newSegment: payload,
+              instanceId: _client.instanceId,
+              ttl: const Duration(hours: 1),
+              tag: 'newsfeed',
+            );
+          } catch (e) {
+            // Non-fatal cache write failure
+          }
+        }
+      }
     }
 
     return res;
@@ -99,6 +121,28 @@ class NewsfeedHandler {
       }
       if (data.groups.isNotEmpty) {
         _client.userCache.putGroups(data.groups);
+      }
+
+      if (!isFirstPage && res is ApiSuccess<NewsfeedResponse>) {
+        final rawResponse = res.rawJson;
+        final payload = rawResponse?['response'] is Map
+            ? Map<String, dynamic>.from(rawResponse!['response'] as Map)
+            : (rawResponse != null
+                ? Map<String, dynamic>.from(rawResponse)
+                : null);
+        if (payload != null && payload.isNotEmpty) {
+          try {
+            await _client.cacheService.appendNewsfeedSegment(
+              key: 'newsfeed_global',
+              newSegment: payload,
+              instanceId: _client.instanceId,
+              ttl: const Duration(hours: 1),
+              tag: 'newsfeed',
+            );
+          } catch (e) {
+            // Non-fatal cache write failure
+          }
+        }
       }
     }
 

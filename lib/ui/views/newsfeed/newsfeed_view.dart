@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/core.dart';
@@ -340,6 +342,13 @@ class _NewsfeedViewState extends State<NewsfeedView> {
         _myPosts.removeWhere((p) => p.id == post.id && p.ownerId == post.ownerId);
         _globalPosts.removeWhere((p) => p.id == post.id && p.ownerId == post.ownerId);
       });
+      unawaited(
+        widget.client.cacheService.removePostFromNewsfeedCache(
+          ownerId: post.ownerId,
+          postId: post.id,
+          instanceId: widget.client.instanceId,
+        ),
+      );
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
