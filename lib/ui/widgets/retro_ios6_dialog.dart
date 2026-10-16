@@ -139,6 +139,160 @@ Future<bool?> showIos6ConfirmDialog({
   );
 }
 
+class Ios6DialogAction<T> {
+  final String text;
+  final T value;
+  final bool isPrimary;
+  final bool isDestructive;
+
+  const Ios6DialogAction({
+    required this.text,
+    required this.value,
+    this.isPrimary = false,
+    this.isDestructive = false,
+  });
+}
+
+Future<T?> showIos6ActionsDialog<T>({
+  required BuildContext context,
+  required String title,
+  String message = '',
+  required List<Ios6DialogAction<T>> actions,
+  String cancelText = 'Отмена',
+}) {
+  return showDialog<T>(
+    context: context,
+    barrierColor: const Color(0x73000000),
+    builder: (ctx) {
+      return Center(
+        child: Material(
+          color: Colors.transparent,
+          child: Container(
+            width: 280,
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Color(0xF01D2D42),
+                  Color(0xF80E1826),
+                ],
+              ),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.35),
+                width: 1.5,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x99000000),
+                  offset: Offset(0, 8),
+                  blurRadius: 20,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10.5),
+              child: Stack(
+                children: [
+                  // Classic iOS 6 Glass Gloss highlight
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 55,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.white.withValues(alpha: 0.22),
+                            Colors.white.withValues(alpha: 0.03),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16.5,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(
+                                color: Colors.black,
+                                offset: Offset(0, -1),
+                                blurRadius: 1,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (message.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            message,
+                            textAlign: TextAlign.center,
+                            maxLines: 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Color(0xFFD6E3F2),
+                              fontSize: 13.5,
+                              height: 1.35,
+                              shadows: [
+                                Shadow(
+                                  color: Colors.black54,
+                                  offset: Offset(0, -1),
+                                  blurRadius: 0.5,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 16),
+                        for (final action in actions) ...[
+                          SizedBox(
+                            width: double.infinity,
+                            child: _Ios6DialogButton(
+                              text: action.text,
+                              isPrimary: action.isPrimary,
+                              isDestructive: action.isDestructive,
+                              onPressed: () => Navigator.of(ctx).pop(action.value),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        SizedBox(
+                          width: double.infinity,
+                          child: _Ios6DialogButton(
+                            text: cancelText,
+                            isPrimary: false,
+                            isDestructive: false,
+                            onPressed: () => Navigator.of(ctx).pop(null),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class _Ios6DialogButton extends StatefulWidget {
   final String text;
   final bool isPrimary;

@@ -21,6 +21,7 @@ import '../messages/chat_conversation_view.dart';
 import 'widgets/dotted_leader_row.dart';
 import 'widgets/wall_counters_grid.dart';
 import 'widgets/wall_post_card.dart';
+import 'post_view.dart';
 import '../media/media_view.dart';
 
 class WallView extends StatefulWidget {
@@ -792,6 +793,28 @@ class _WallViewState extends State<WallView>
     );
   }
 
+  void _openPostView(Post post) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PostView(
+          client: widget.client,
+          account: widget.account,
+          post: post,
+          onPostUpdated: (updatedPost) {
+            setState(() {
+              final idx = _posts.indexWhere(
+                (p) => p.id == updatedPost.id && p.ownerId == updatedPost.ownerId,
+              );
+              if (idx != -1) {
+                _posts[idx] = updatedPost;
+              }
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final canPop = ModalRoute.of(context)?.canPop ?? false;
@@ -916,6 +939,9 @@ class _WallViewState extends State<WallView>
                     key: ValueKey('post_${post.id}'),
                     post: post,
                     onLikeToggle: () => _handleToggleLike(post),
+                    onCommentsTap: () => _openPostView(post),
+                    onPostTap: () => _openPostView(post),
+                    onRepostContentTap: (repost) => _openPostView(repost),
                     onDeleteTap: (_isMyWall || post.fromId == widget.account.userId)
                         ? () => _handleDeletePost(post)
                         : null,

@@ -11,6 +11,8 @@ class WallPostCard extends StatefulWidget {
   final VoidCallback? onRepostTap;
   final VoidCallback? onDeleteTap;
   final ValueChanged<int>? onAuthorTap;
+  final VoidCallback? onPostTap;
+  final ValueChanged<Post>? onRepostContentTap;
 
   const WallPostCard({
     super.key,
@@ -20,6 +22,8 @@ class WallPostCard extends StatefulWidget {
     this.onRepostTap,
     this.onDeleteTap,
     this.onAuthorTap,
+    this.onPostTap,
+    this.onRepostContentTap,
   });
 
   @override
@@ -187,12 +191,16 @@ class _WallPostCardState extends State<WallPostCard> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      displayText,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        height: 1.38,
-                        color: Color(0xFF1E242B),
+                    GestureDetector(
+                      onTap: widget.onPostTap,
+                      behavior: HitTestBehavior.opaque,
+                      child: Text(
+                        displayText,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          height: 1.38,
+                          color: Color(0xFF1E242B),
+                        ),
                       ),
                     ),
                     if (isLongText && !_isExpanded)
@@ -230,52 +238,61 @@ class _WallPostCardState extends State<WallPostCard> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       for (final repost in post.copyHistory) ...[
-                        Row(
-                          children: [
-                            GestureDetector(
-                              onTap: () => widget.onAuthorTap?.call(repost.fromId),
-                              child: Container(
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(4),
-                                  border: Border.all(color: const Color(0xFFC0C7D0), width: 0.5),
-                                ),
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(3.5),
-                                  child: RetroAvatar(
-                                    url: repost.authorAvatarUrl,
-                                    size: 26,
-                                    fallbackText: repost.authorName.isNotEmpty
-                                        ? repost.authorName[0].toUpperCase()
-                                        : '?',
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => widget.onRepostContentTap?.call(repost),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  GestureDetector(
+                                    onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: const Color(0xFFC0C7D0), width: 0.5),
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(3.5),
+                                        child: RetroAvatar(
+                                          url: repost.authorAvatarUrl,
+                                          size: 26,
+                                          fallbackText: repost.authorName.isNotEmpty
+                                              ? repost.authorName[0].toUpperCase()
+                                              : '?',
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  GestureDetector(
+                                    onTap: () => widget.onAuthorTap?.call(repost.fromId),
+                                    child: Text(
+                                      repost.authorName,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF22446B),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                            const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () => widget.onAuthorTap?.call(repost.fromId),
-                              child: Text(
-                                repost.authorName,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF22446B),
+                              if (repost.text.trim().isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  repost.text.trim(),
+                                  style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF1E242B)),
                                 ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (repost.text.trim().isNotEmpty) ...[
-                          const SizedBox(height: 4),
-                          Text(
-                            repost.text.trim(),
-                            style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF1E242B)),
+                              ],
+                              if (repost.attachments.isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                RetroAttachmentGrid(attachments: repost.attachments),
+                              ],
+                            ],
                           ),
-                        ],
-                        if (repost.attachments.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          RetroAttachmentGrid(attachments: repost.attachments),
-                        ],
+                        ),
                       ],
                     ],
                   ),
@@ -320,7 +337,7 @@ class _WallPostCardState extends State<WallPostCard> {
                     iconColor: const Color(0xFF6B7887),
                     label: post.commentsCount > 0 ? '${post.commentsCount}' : '',
                     textColor: const Color(0xFF384656),
-                    onTap: widget.onCommentsTap,
+                    onTap: widget.onCommentsTap ?? widget.onPostTap,
                   ),
                   const SizedBox(width: 8),
 

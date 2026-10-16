@@ -1,7 +1,10 @@
 import 'dart:async';
 
 import '../cache/cache_policy.dart';
+import '../models/group.dart';
+import '../models/post.dart';
 import '../models/user.dart';
+import '../models/wall_comments_response.dart';
 import '../models/wall_response.dart';
 import '../utils/json_safe.dart';
 import 'api_response.dart';
@@ -237,6 +240,161 @@ class WallHandler {
         return 0;
       },
       fallback: () => 0,
+    );
+  }
+
+  /// Fetch comments for a wall post.
+  Future<ApiResponse<WallCommentsResponse>> getComments({
+    required int ownerId,
+    required int postId,
+    int offset = 0,
+    int count = 50,
+    String sort = 'asc',
+  }) async {
+    final params = <String, dynamic>{
+      'owner_id': ownerId,
+      'post_id': postId,
+      'need_likes': 1,
+      'offset': offset,
+      'count': count,
+      'sort': sort,
+      'extended': 1,
+      'fields': 'photo_50,photo_100,online',
+    };
+
+    final res = await _client.call<WallCommentsResponse>(
+      'wall.getComments',
+      params: params,
+      parser: (json) => WallCommentsResponse.fromJson(JsonSafe.toMap(json)),
+      fallback: () => WallCommentsResponse.empty(),
+    );
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      if (data.profiles.isNotEmpty) {
+        _client.userCache.putUsers(data.profiles);
+      }
+      if (data.groups.isNotEmpty) {
+        _client.userCache.putGroups(data.groups);
+      }
+    }
+
+    return res;
+  }
+
+  /// Create a comment on a wall post.
+  Future<ApiResponse<int>> createComment({
+    required int ownerId,
+    required int postId,
+    required String message,
+    int? replyToComment,
+    List<String>? attachments,
+  }) async {
+    final params = <String, dynamic>{
+      'owner_id': ownerId,
+      'post_id': postId,
+      'message': message,
+      if (replyToComment != null && replyToComment > 0)
+        'reply_to_comment': replyToComment,
+      if (attachments != null && attachments.isNotEmpty)
+        'attachments': attachments.join(','),
+    };
+
+    return _client.call<int>(
+      'wall.createComment',
+      httpMethod: HttpMethod.post,
+      params: params,
+      parser: (json) {
+        if (json is Map && json.containsKey('comment_id')) {
+          return JsonSafe.toInt(json['comment_id']);
+        }
+        return JsonSafe.toInt(json);
+      },
+      fallback: () => 0,
+    );
+  }
+
+  /// Delete a comment on a wall post.
+  Future<ApiResponse<bool>> deleteComment({
+    required int ownerId,
+    required int commentId,
+  }) async {
+    return _client.call<bool>(
+      'wall.deleteComment',
+      httpMethod: HttpMethod.post,
+      params: {
+        'owner_id': ownerId,
+        'comment_id': commentId,
+      },
+      parser: (json) =>
+          json == 1 || json == true || (json is Map && json['response'] == 1),
+      fallback: () => false,
+    );
+  }
+
+  /// Toggle like on a comment.
+  Future<ApiResponse<int>> toggleCommentLike({
+    required int ownerId,
+    required int commentId,
+    required bool isCurrentlyLiked,
+  }) async {
+    final method = isCurrentlyLiked ? 'likes.delete' : 'likes.add';
+    return _client.call<int>(
+      method,
+      httpMethod: HttpMethod.post,
+      params: {
+        'type': 'comment',
+        'owner_id': ownerId,
+        'item_id': commentId,
+      },
+      parser: (json) {
+        if (json is Map && json.containsKey('likes')) {
+          return JsonSafe.toInt(json['likes']);
+        }
+        return 0;
+      },
+      fallback: () => 0,
+    );
+  }
+
+  /// Fetch a single post by [ownerId] and [postId].
+  Future<ApiResponse<Post?>> getPostById({
+    required int ownerId,
+    required int postId,
+  }) async {
+    return _client.call<Post?>(
+      'wall.getById',
+      params: {
+        'posts': '${ownerId}_$postId',
+        'extended': 1,
+        'fields': 'photo_50,photo_100,online',
+      },
+      parser: (json) {
+        final map = JsonSafe.toMap(json);
+        final profiles = JsonSafe.toList(
+          map['profiles'],
+          (p) => User.fromJson(JsonSafe.toMap(p)),
+        );
+        final groups = JsonSafe.toList(
+          map['groups'],
+          (g) => Group.fromJson(JsonSafe.toMap(g)),
+        );
+        final usersMap = {for (final u in profiles) u.id: u};
+        final groupsMap = {for (final g in groups) g.id: g};
+
+        final items = map.containsKey('items')
+            ? JsonSafe.toList(map['items'], (i) => JsonSafe.toMap(i))
+            : (json is List
+                ? json.map((i) => JsonSafe.toMap(i)).toList()
+                : <Map<String, dynamic>>[]);
+
+        if (items.isNotEmpty) {
+          return Post.fromJson(items.first,
+              usersMap: usersMap, groupsMap: groupsMap);
+        }
+        return null;
+      },
+      fallback: () => null,
     );
   }
 }

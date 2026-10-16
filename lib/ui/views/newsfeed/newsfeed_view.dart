@@ -8,6 +8,7 @@ import '../../widgets/drawer_bound_physics.dart';
 import '../../widgets/retro_button.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
+import '../wall/post_view.dart';
 import '../wall/wall_view.dart';
 import '../wall/widgets/wall_post_card.dart';
 
@@ -373,6 +374,34 @@ class _NewsfeedViewState extends State<NewsfeedView> {
     );
   }
 
+  void _openPostView(Post post) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PostView(
+          client: widget.client,
+          account: widget.account,
+          post: post,
+          onPostUpdated: (updatedPost) {
+            setState(() {
+              _updatePostInList(
+                _myPosts,
+                updatedPost.id,
+                updatedPost.ownerId,
+                (_) => updatedPost,
+              );
+              _updatePostInList(
+                _globalPosts,
+                updatedPost.id,
+                updatedPost.ownerId,
+                (_) => updatedPost,
+              );
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageView(
@@ -534,6 +563,9 @@ class _NewsfeedViewState extends State<NewsfeedView> {
             key: ValueKey('news_${post.ownerId}_${post.id}'),
             post: post,
             onLikeToggle: () => _handleToggleLike(post),
+            onCommentsTap: () => _openPostView(post),
+            onPostTap: () => _openPostView(post),
+            onRepostContentTap: (repost) => _openPostView(repost),
             onDeleteTap: post.fromId == widget.account.userId
                 ? () => _handleDeletePost(post)
                 : null,
