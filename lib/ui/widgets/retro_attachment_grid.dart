@@ -41,6 +41,10 @@ class RetroAttachmentGrid extends StatelessWidget {
     final giftAttachments =
         attachments.where((a) => a.type == 'gift').toList();
 
+    final wallAttachments = attachments
+        .where((a) => a.type == 'wall' || a.type == 'wall_reply')
+        .toList();
+
     final otherAttachments = attachments
         .where((a) =>
             a.type != 'photo' &&
@@ -48,7 +52,10 @@ class RetroAttachmentGrid extends StatelessWidget {
             a.type != 'audio' &&
             a.type != 'doc' &&
             a.type != 'sticker' &&
-            a.type != 'gift')
+            a.type != 'gift' &&
+            a.type != 'wall' &&
+            a.type != 'wall_reply' &&
+            a.type != 'link')
         .toList();
 
     return Container(
@@ -83,12 +90,22 @@ class RetroAttachmentGrid extends StatelessWidget {
               const SizedBox(height: 6),
             ...giftAttachments.map((g) => _buildGiftRow(context, g)),
           ],
-          if (otherAttachments.isNotEmpty) ...[
+          if (wallAttachments.isNotEmpty) ...[
             if (visualAttachments.isNotEmpty ||
                 audioAttachments.isNotEmpty ||
                 docAttachments.isNotEmpty ||
                 stickerAttachments.isNotEmpty ||
                 giftAttachments.isNotEmpty)
+              const SizedBox(height: 6),
+            ...wallAttachments.map((w) => _buildWallRow(context, w)),
+          ],
+          if (otherAttachments.isNotEmpty) ...[
+            if (visualAttachments.isNotEmpty ||
+                audioAttachments.isNotEmpty ||
+                docAttachments.isNotEmpty ||
+                stickerAttachments.isNotEmpty ||
+                giftAttachments.isNotEmpty ||
+                wallAttachments.isNotEmpty)
               const SizedBox(height: 6),
             ...otherAttachments.map((o) => _buildGenericRow(context, o)),
           ],
@@ -598,6 +615,49 @@ class RetroAttachmentGrid extends StatelessWidget {
             color: Color(0xFF7A889B),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildWallRow(BuildContext context, Attachment item) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2.5),
+      child: InkWell(
+        onTap: () => onAttachmentTap?.call(item, -1),
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0x12245899),
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(
+              color: isOut ? const Color(0xFF96B8DA) : const Color(0xFFBCC6D2),
+              width: 0.8,
+            ),
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.article_outlined,
+                size: 16,
+                color: RetroTheme.vkBlue,
+              ),
+              SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  'Нажмите, чтобы открыть запись',
+                  style: TextStyle(
+                    color: RetroTheme.textLink,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

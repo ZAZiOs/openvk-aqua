@@ -8,6 +8,7 @@ class Attachment {
   final DocAttachment? doc;
   final StickerAttachment? sticker;
   final GiftAttachment? gift;
+  final WallAttachment? wall;
 
   const Attachment({
     required this.type,
@@ -17,6 +18,7 @@ class Attachment {
     this.doc,
     this.sticker,
     this.gift,
+    this.wall,
   });
 
   factory Attachment.fromJson(Map<String, dynamic> json) {
@@ -31,6 +33,9 @@ class Attachment {
       doc: type == 'doc' ? DocAttachment.fromJson(map) : null,
       sticker: type == 'sticker' ? StickerAttachment.fromJson(map) : null,
       gift: type == 'gift' ? GiftAttachment.fromJson(map) : null,
+      wall: (type == 'wall' || type == 'wall_reply')
+          ? WallAttachment.fromJson(map)
+          : null,
     );
   }
 
@@ -444,6 +449,35 @@ class GiftAttachment {
       thumb256: JsonSafe.toStr(inner['thumb_256'] ?? inner['thumb_512'] ?? inner['photo_256'] ?? inner['url']),
       thumb96: JsonSafe.toStr(inner['thumb_96'] ?? inner['photo_96']),
       thumb48: JsonSafe.toStr(inner['thumb_48'] ?? inner['photo_48']),
+    );
+  }
+}
+
+class WallAttachment {
+  final int id;
+  final int ownerId;
+  final int fromId;
+  final int date;
+  final String text;
+  final Map<String, dynamic> rawJson;
+
+  const WallAttachment({
+    required this.id,
+    required this.ownerId,
+    required this.fromId,
+    required this.date,
+    required this.text,
+    this.rawJson = const {},
+  });
+
+  factory WallAttachment.fromJson(Map<String, dynamic> json) {
+    return WallAttachment(
+      id: JsonSafe.toInt(json['id'] ?? json['post_id']),
+      ownerId: JsonSafe.toInt(json['owner_id'] ?? json['to_id']),
+      fromId: JsonSafe.toInt(json['from_id'] ?? json['source_id']),
+      date: JsonSafe.toInt(json['date']),
+      text: JsonSafe.toStr(json['text']),
+      rawJson: json,
     );
   }
 }

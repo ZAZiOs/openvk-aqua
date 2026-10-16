@@ -67,12 +67,24 @@ class MessengerStore {
   }
 
   ValueNotifier<ConversationItem> getOrCreateConversationNotifier(ConversationItem item) {
-    if (_conversationNotifiers.containsKey(item.peerId)) {
-      _conversationNotifiers[item.peerId]!.value = item;
+    return _conversationNotifiers.putIfAbsent(
+      item.peerId,
+      () => ValueNotifier<ConversationItem>(item),
+    );
+  }
+
+  ValueNotifier<ConversationItem> putConversation(ConversationItem item) {
+    final notifier = _conversationNotifiers[item.peerId];
+    if (notifier != null) {
+      if (notifier.value != item) {
+        notifier.value = item;
+      }
+      return notifier;
     } else {
-      _conversationNotifiers[item.peerId] = ValueNotifier<ConversationItem>(item);
+      final newNotifier = ValueNotifier<ConversationItem>(item);
+      _conversationNotifiers[item.peerId] = newNotifier;
+      return newNotifier;
     }
-    return _conversationNotifiers[item.peerId]!;
   }
 
   void unpinMessage(int peerId) {
@@ -213,7 +225,7 @@ class MessengerStore {
     final unreadPeerIds = <int>[];
 
     for (final item in response.items) {
-      getOrCreateConversationNotifier(item);
+      putConversation(item);
       newPeerIds.add(item.peerId);
       if (filter == 'unread' || item.unreadCount > 0) {
         unreadPeerIds.add(item.peerId);
@@ -682,51 +694,47 @@ class MessengerStore {
     required List<int> userIds,
     int totalCount = 0,
   }) {
-    final newSet = userIds.where((id) => id != 0).toSet();
+    final validIds = userIds.where((id) => id != 0).toList();
+    if (validIds.isEmpty) return;
+
     final currentSet = _activeTypingUsers.putIfAbsent(peerId, () => <int>{});
+    final peerTimers = _typingUserTimers.putIfAbsent(peerId, () => <int, Timer>{});
 
-    final removedUsers = currentSet.difference(newSet);
-    for (final uid in removedUsers) {
-      _typingUserTimers[peerId]?[uid]?.cancel();
-      _typingUserTimers[peerId]?.remove(uid);
-    }
+    // Add each typing user and give them an individual 5-second timer from this event
+    for (final uid in validIds) {
+      currentSet.add(uid);
 
-    currentSet.clear();
-    currentSet.addAll(newSet);
-
-    _peerGeneralTypingTimers[peerId]?.cancel();
-    _activeTypingTotalCounts[peerId] = max(totalCount, newSet.length);
-
-    for (final uid in newSet) {
       if (uid > 0 && !userCache.hasUser(uid)) {
         userCache.requestUser(uid);
       } else if (uid < 0 && !userCache.hasGroup(uid.abs())) {
         userCache.requestGroup(uid.abs());
       }
 
-      _typingUserTimers.putIfAbsent(peerId, () => {})[uid]?.cancel();
-      _typingUserTimers[peerId]![uid] = Timer(const Duration(seconds: 6), () {
+      peerTimers[uid]?.cancel();
+      peerTimers[uid] = Timer(const Duration(seconds: 5), () {
         _activeTypingUsers[peerId]?.remove(uid);
         _typingUserTimers[peerId]?.remove(uid);
-        if (_activeTypingUsers[peerId]?.isEmpty ?? true) {
+        final remaining = _activeTypingUsers[peerId];
+        if (remaining == null || remaining.isEmpty) {
+          _activeTypingUsers.remove(peerId);
           _activeTypingTotalCounts.remove(peerId);
+          _typingUserTimers.remove(peerId);
+        } else {
+          final total = _activeTypingTotalCounts[peerId];
+          if (total != null && total > remaining.length) {
+            _activeTypingTotalCounts[peerId] = total - 1;
+          } else {
+            _activeTypingTotalCounts[peerId] = remaining.length;
+          }
         }
         _updateTypingNotifier(peerId);
       });
     }
 
-    _peerGeneralTypingTimers[peerId] = Timer(const Duration(seconds: 6), () {
-      _activeTypingTotalCounts.remove(peerId);
-      _activeTypingUsers[peerId]?.clear();
-      final timers = _typingUserTimers[peerId];
-      if (timers != null) {
-        for (final t in timers.values) {
-          t.cancel();
-        }
-        timers.clear();
-      }
-      _updateTypingNotifier(peerId);
-    });
+    _activeTypingTotalCounts[peerId] = max(
+      totalCount,
+      currentSet.length,
+    );
 
     _updateTypingNotifier(peerId);
   }
@@ -739,23 +747,28 @@ class MessengerStore {
       return null;
     }
 
-    if (count > 3) {
-      return 'несколько человек печатает...';
-    }
-
     final names = users.map((uid) => _getUserDisplayName(uid)).toList();
     if (names.isEmpty) {
-      return 'печатает...';
+      return count == 1 ? 'печатает...' : 'печатают...';
     }
 
     if (names.length == 1) {
+      if (count > 1) {
+        return '${names[0]} и ещё ${count - 1} печатают...';
+      }
       return '${names[0]} печатает...';
     } else if (names.length == 2) {
-      return '${names[0]} и ${names[1]} печатает...';
+      if (count > 2) {
+        return '${names[0]}, ${names[1]} и ещё ${count - 2} печатают...';
+      }
+      return '${names[0]} и ${names[1]} печатают...';
     } else if (names.length == 3) {
-      return '${names[0]}, ${names[1]} и ${names[2]} печатает...';
+      if (count > 3) {
+        return '${names[0]}, ${names[1]} и ещё ${count - 2} печатают...';
+      }
+      return '${names[0]}, ${names[1]} и ${names[2]} печатают...';
     } else {
-      return 'несколько человек печатает...';
+      return '${names[0]}, ${names[1]} и ещё ${count - 2} печатают...';
     }
   }
 

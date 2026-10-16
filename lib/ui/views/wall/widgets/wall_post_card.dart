@@ -5,6 +5,7 @@ import '../../../../core/models/post.dart';
 import '../../../widgets/retro_attachment_grid.dart';
 import '../../../widgets/retro_avatar.dart';
 import '../../../widgets/retro_ios6_dialog.dart';
+import '../../../utils/retro_text_parser.dart';
 
 enum _PostAction {
   open,
@@ -233,13 +234,14 @@ class _WallPostCardState extends State<WallPostCard> {
                       onLongPress: () => _showPostActions(context),
                       onSecondaryTap: () => _showPostActions(context),
                       behavior: HitTestBehavior.opaque,
-                      child: Text(
-                        displayText,
+                      child: RetroLinkifiedText(
+                        text: displayText,
                         style: const TextStyle(
                           fontSize: 13.5,
                           height: 1.38,
                           color: Color(0xFF1E242B),
                         ),
+                        onOpenProfile: widget.onAuthorTap,
                       ),
                     ),
                     if (isLongText && !_isExpanded)
@@ -320,9 +322,10 @@ class _WallPostCardState extends State<WallPostCard> {
                               ),
                               if (repost.text.trim().isNotEmpty) ...[
                                 const SizedBox(height: 4),
-                                Text(
-                                  repost.text.trim(),
+                                RetroLinkifiedText(
+                                  text: repost.text.trim(),
                                   style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF1E242B)),
+                                  onOpenProfile: widget.onAuthorTap,
                                 ),
                               ],
                               if (repost.attachments.isNotEmpty) ...[

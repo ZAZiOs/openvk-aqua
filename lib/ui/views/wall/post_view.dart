@@ -15,6 +15,7 @@ import '../../widgets/retro_avatar.dart';
 import '../../widgets/retro_ios6_dialog.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
+import '../../utils/retro_text_parser.dart';
 import 'wall_view.dart';
 import 'widgets/wall_post_card.dart';
 
@@ -736,13 +737,14 @@ class _PostViewState extends State<PostView> {
 
                   // Text
                   if (comment.text.isNotEmpty)
-                    Text(
-                      comment.text,
+                    RetroLinkifiedText(
+                      text: comment.text,
                       style: const TextStyle(
                         fontSize: 13.5,
                         height: 1.35,
                         color: Color(0xFF1E242B),
                       ),
+                      onOpenProfile: _openUserProfile,
                     ),
 
                   // Attachments

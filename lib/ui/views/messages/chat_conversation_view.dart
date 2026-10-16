@@ -19,7 +19,23 @@ import '../../widgets/retro_attachment_grid.dart';
 import '../../widgets/retro_chat_avatar.dart';
 import '../../widgets/retro_ios6_dialog.dart';
 import '../../widgets/retro_loading_indicator.dart';
+import '../../widgets/retro_message_viewers_dialog.dart';
+import '../../widgets/retro_scroll_to_bottom_button.dart';
+import '../../widgets/retro_swipe_to_reply.dart';
+import '../../../core/api/wall_handler.dart';
+import '../../../core/models/post.dart';
+import '../../utils/retro_text_parser.dart';
+import '../wall/post_view.dart';
 import '../wall/wall_view.dart';
+
+enum _MsgAction {
+  reply,
+  copy,
+  viewers,
+  pin,
+  unpin,
+  delete,
+}
 
 class ChatConversationView extends StatefulWidget {
   final OpenVkClient client;
@@ -85,8 +101,11 @@ class ChatConversationView extends StatefulWidget {
 
 class _ChatConversationViewState extends State<ChatConversationView> {
   late final MessagesHandler _messagesHandler;
+  late ValueNotifier<ConversationItem> _conversationNotifier;
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
+  Message? _replyToMessage;
 
   final GlobalKey _listKey = GlobalKey();
   int? _unreadSeparatorMessageId;
@@ -126,9 +145,57 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     );
   }
 
+  Future<void> _openWallPostFromAttachment(Attachment att) async {
+    final wall = att.wall;
+    final ownerId = wall?.ownerId ?? 0;
+    final postId = wall?.id ?? 0;
+
+    if (ownerId == 0 && postId == 0) return;
+
+    Post? post;
+    if (wall != null && wall.rawJson.isNotEmpty && wall.rawJson.containsKey('text')) {
+      try {
+        post = Post.fromJson(wall.rawJson);
+      } catch (_) {}
+    }
+
+    if (post == null || post.author == null) {
+      try {
+        final res = await WallHandler(widget.client).getPostById(
+          ownerId: ownerId,
+          postId: postId,
+        );
+        if (res.dataOrNull != null) {
+          post = res.dataOrNull;
+        }
+      } catch (_) {}
+    }
+
+    post ??= Post(
+      id: postId,
+      ownerId: ownerId,
+      fromId: wall?.fromId ?? ownerId,
+      date: wall?.date ?? 0,
+      text: wall?.text ?? '',
+    );
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => PostView(
+          client: widget.client,
+          account: widget.account,
+          post: post!,
+        ),
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
+    _conversationNotifier = widget.client.messengerStore
+        .getOrCreateConversationNotifier(widget.conversation);
     NotificationDispatcher.instance.activePeerId = widget.conversation.peerId;
     _messagesHandler = MessagesHandler(widget.client);
     _lastMarkedReadId = widget.conversation.inRead;
@@ -136,6 +203,15 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     _scrollController.addListener(_onScroll);
     _loadHistory();
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
+  }
+
+  @override
+  void didUpdateWidget(ChatConversationView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.conversation.peerId != widget.conversation.peerId) {
+      _conversationNotifier = widget.client.messengerStore
+          .getOrCreateConversationNotifier(widget.conversation);
+    }
   }
 
   @override
@@ -152,6 +228,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     }
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _inputController.dispose();
+    _inputFocusNode.dispose();
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _highlightTimer?.cancel();
@@ -667,12 +744,17 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     final text = _inputController.text.trim();
     if (text.isEmpty || _isSending) return;
 
-    setState(() => _isSending = true);
+    final replyTo = _replyToMessage;
+    setState(() {
+      _isSending = true;
+      _replyToMessage = null;
+    });
     _inputController.clear();
 
     final res = await _messagesHandler.send(
       peerId: widget.conversation.peerId,
       message: text,
+      replyTo: replyTo?.id,
     );
 
     if (!mounted) return;
@@ -687,6 +769,129 @@ class _ChatConversationViewState extends State<ChatConversationView> {
         ),
       );
     }
+  }
+
+  void _setReplyMessage(Message message) {
+    setState(() {
+      _replyToMessage = message;
+    });
+    _inputFocusNode.requestFocus();
+  }
+
+  void _clearReplyMessage() {
+    setState(() {
+      _replyToMessage = null;
+    });
+  }
+
+  Future<void> _showMessageActions(Message message) async {
+    final isOut = message.isOut || message.fromId == widget.currentUserId;
+    final isChat = widget.conversation.isChat || widget.conversation.peerId > 2000000000;
+    final isChatAdmin = isChat &&
+        widget.conversation.chatSettings?.adminId == widget.currentUserId;
+    final canDelete = isOut || isChatAdmin;
+
+    final isPinned =
+        widget.conversation.chatSettings?.pinnedMessage?.id == message.id;
+
+    final canViewViewers = isOut && isChat;
+
+    final actions = <Ios6DialogAction<_MsgAction>>[
+      const Ios6DialogAction(
+        text: 'Ответить',
+        value: _MsgAction.reply,
+        isPrimary: true,
+      ),
+      if (message.text.trim().isNotEmpty)
+        const Ios6DialogAction(
+          text: 'Скопировать текст',
+          value: _MsgAction.copy,
+        ),
+      if (canViewViewers)
+        const Ios6DialogAction(
+          text: 'Кто посмотрел',
+          value: _MsgAction.viewers,
+        ),
+      if (isChat)
+        Ios6DialogAction(
+          text: isPinned ? 'Открепить' : 'Закрепить',
+          value: isPinned ? _MsgAction.unpin : _MsgAction.pin,
+        ),
+      if (canDelete)
+        const Ios6DialogAction(
+          text: 'Удалить',
+          value: _MsgAction.delete,
+          isDestructive: true,
+        ),
+    ];
+
+    final action = await showIos6ActionsDialog<_MsgAction>(
+      context: context,
+      title: 'Действие с сообщением',
+      message: message.previewText,
+      actions: actions,
+      cancelText: 'Отмена',
+    );
+
+    if (action == null || !mounted) return;
+
+    switch (action) {
+      case _MsgAction.reply:
+        _setReplyMessage(message);
+        break;
+      case _MsgAction.copy:
+        await Clipboard.setData(ClipboardData(text: message.text));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Текст сообщения скопирован'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        break;
+      case _MsgAction.viewers:
+        _showViewersDialog(message);
+        break;
+      case _MsgAction.pin:
+        await _messagesHandler.pin(
+          peerId: widget.conversation.peerId,
+          messageId: message.id,
+        );
+        break;
+      case _MsgAction.unpin:
+        await _messagesHandler.unpin(peerId: widget.conversation.peerId);
+        break;
+      case _MsgAction.delete:
+        final confirm = await showIos6ConfirmDialog(
+          context: context,
+          title: 'Удаление сообщения',
+          message: 'Вы уверены, что хотите удалить это сообщение?',
+          cancelText: 'Отмена',
+          confirmText: 'Удалить',
+          isDestructive: true,
+        );
+        if (confirm == true && mounted) {
+          await _messagesHandler.deleteMessages(
+            messageIds: [message.id],
+            deleteForAll: true,
+          );
+          await _loadHistory(refresh: true);
+        }
+        break;
+    }
+  }
+
+  void _showViewersDialog(Message message) {
+    showMessageViewersDialog(
+      context: context,
+      client: widget.client,
+      peerId: widget.conversation.peerId,
+      message: message,
+      onUserTap: (userId) {
+        _openUserProfile(userId);
+      },
+    );
   }
 
   Widget _buildDateSeparator(int timestamp) {
@@ -860,10 +1065,8 @@ class _ChatConversationViewState extends State<ChatConversationView> {
   }
 
   Widget _buildPinnedMessageBar() {
-    final notifier = widget.client.messengerStore
-        .getOrCreateConversationNotifier(widget.conversation);
     return ValueListenableBuilder<ConversationItem>(
-      valueListenable: notifier,
+      valueListenable: _conversationNotifier,
       builder: (context, conv, _) {
         final pinned = conv.activePinnedMessage;
         if (pinned == null) return const SizedBox.shrink();
@@ -1006,15 +1209,14 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                     ),
                     if (_showScrollToBottom)
                       Positioned(
-                        right: 16,
-                        bottom: 16,
-                        child: FloatingActionButton.small(
-                          heroTag: 'chat_scroll_bottom',
-                          onPressed: _jumpToLatest,
-                          backgroundColor: Colors.white,
-                          foregroundColor: RetroTheme.vkBlue,
-                          elevation: 3,
-                          child: const Icon(Icons.keyboard_arrow_down, size: 24),
+                        right: 14,
+                        bottom: 14,
+                        child: ValueListenableBuilder<ConversationItem>(
+                          valueListenable: _conversationNotifier,
+                          builder: (context, conv, _) => RetroScrollToBottomButton(
+                            onPressed: _jumpToLatest,
+                            unreadCount: conv.unreadCount,
+                          ),
                         ),
                       ),
                   ],
@@ -1361,12 +1563,17 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     final isHighlighted = _highlightedMessageId == message.id;
 
     if (message.isSticker) {
-      return _buildStickerMessage(
+      final stickerWidget = _buildStickerMessage(
         message,
         isOut,
         isWideChat: isWideChat,
         isFirstInGroup: isFirstInGroup,
         isLastInGroup: isLastInGroup,
+      );
+      return RetroSwipeToReply(
+        key: ValueKey('msg_swipe_${message.id}'),
+        onReply: () => _setReplyMessage(message),
+        child: stickerWidget,
       );
     }
 
@@ -1454,7 +1661,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     final showLeftTail = isLastInGroup && (!isOut || isWideChat);
     final showRightTail = isLastInGroup && (isOut && !isWideChat);
 
-    return Padding(
+    final messageRow = Padding(
       padding: EdgeInsets.only(
         top: isFirstInGroup ? 4.5 : 1.5,
         bottom: isLastInGroup ? 4.5 : 1.5,
@@ -1481,8 +1688,12 @@ class _ChatConversationViewState extends State<ChatConversationView> {
             const SizedBox(width: 8),
           ],
           Flexible(
-            child: Container(
-              constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onLongPress: () => _showMessageActions(message),
+              onSecondaryTap: () => _showMessageActions(message),
+              child: Container(
+                constraints: BoxConstraints(maxWidth: maxBubbleWidth),
               padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
               decoration: BoxDecoration(
                 gradient: isHighlighted
@@ -1615,6 +1826,11 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                               .toList(),
                           isOut: isOut,
                           maxWidth: 200,
+                          onAttachmentTap: (att, idx) {
+                            if (att.type == 'wall' || att.type == 'wall_reply') {
+                              _openWallPostFromAttachment(att);
+                            }
+                          },
                         ),
                       ),
                     if (effectiveGiftText.isNotEmpty)
@@ -1623,6 +1839,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                         time: timeStr,
                         textStyle: textStyle,
                         timeStyle: timeStyle,
+                        onOpenProfile: _openUserProfile,
                       )
                     else
                       Align(
@@ -1646,6 +1863,11 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                           attachments: message.attachments,
                           isOut: isOut,
                           maxWidth: 380,
+                          onAttachmentTap: (att, idx) {
+                            if (att.type == 'wall' || att.type == 'wall_reply') {
+                              _openWallPostFromAttachment(att);
+                            }
+                          },
                         ),
                       ),
                     if (message.text.isNotEmpty)
@@ -1654,6 +1876,7 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                         time: timeStr,
                         textStyle: textStyle,
                         timeStyle: timeStyle,
+                        onOpenProfile: _openUserProfile,
                       )
                     else
                       Row(
@@ -1667,10 +1890,17 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                 ],
               ),
             ),
+            ),
           ),
           if (isOut && !isWideChat) const SizedBox(width: 4),
         ],
       ),
+    );
+
+    return RetroSwipeToReply(
+      key: ValueKey('msg_swipe_${message.id}'),
+      onReply: () => _setReplyMessage(message),
+      child: messageRow,
     );
   }
 
@@ -1764,17 +1994,40 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       authorName = 'Сообщение #$replyId';
     }
 
+    final quoteBgGradient = isOut
+        ? const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFC7DBEF), Color(0xFFB4CEE8)],
+          )
+        : const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFE9EEF4), Color(0xFFDCE2EB)],
+          );
+
+    final borderColor = isOut ? const Color(0xFF96B8DA) : const Color(0xFFBCC6D2);
+    final accentColor = isOut ? const Color(0xFF245899) : RetroTheme.vkBlue;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _jumpToMessage(replyId),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(6),
           child: Container(
             decoration: BoxDecoration(
-              color: isOut ? const Color(0x14000000) : const Color(0x0C000000),
-              borderRadius: BorderRadius.circular(4),
+              gradient: quoteBgGradient,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: borderColor, width: 0.8),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x10000000),
+                  offset: Offset(0, 1),
+                  blurRadius: 1,
+                ),
+              ],
             ),
             child: IntrinsicHeight(
               child: Row(
@@ -1782,38 +2035,62 @@ class _ChatConversationViewState extends State<ChatConversationView> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Container(
-                    width: 3,
+                    width: 3.5,
                     decoration: BoxDecoration(
-                      color: RetroTheme.vkBlue,
-                      borderRadius: BorderRadius.circular(2),
+                      color: accentColor,
+                      borderRadius: const BorderRadius.only(
+                        topLeft: Radius.circular(5),
+                        bottomLeft: Radius.circular(5),
+                      ),
                     ),
                   ),
                   Flexible(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                          horizontal: 8, vertical: 5),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            authorName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: RetroTheme.textLink,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.reply_rounded,
+                                size: 12,
+                                color: accentColor,
+                              ),
+                              const SizedBox(width: 3),
+                              Flexible(
+                                child: Text(
+                                  authorName,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: accentColor,
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.bold,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Color(0x80FFFFFF),
+                                        offset: Offset(0, 1),
+                                        blurRadius: 0,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(height: 1),
+                          const SizedBox(height: 1.5),
                           Text(
                             preview,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
-                              color: RetroTheme.textSecondary,
-                              fontSize: 12,
+                              color: Color(0xFF435263),
+                              fontSize: 11.5,
+                              height: 1.25,
                             ),
                           ),
                         ],
@@ -1892,60 +2169,65 @@ class _ChatConversationViewState extends State<ChatConversationView> {
               if (message.replyMessage != null ||
                   message.replyMessageId != null)
                 _buildReplyQuote(message, isOut),
-              Stack(
-                children: [
-                  SizedBox(
-                    width: 160,
-                    height: 160,
-                    child: stickerUrl.isNotEmpty
-                        ? Image.network(
-                            stickerUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) =>
-                                _buildStickerFallback(sticker?.stickerId ?? 0),
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(
-                                child: RetroLoadingIndicator(size: 20),
-                              );
-                            },
-                          )
-                        : _buildStickerFallback(sticker?.stickerId ?? 0),
-                  ),
-                  Positioned(
-                    bottom: 4,
-                    right: 4,
-                    child: Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0x66000000),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            _formatTime(message.date),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w500,
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: () => _showMessageActions(message),
+                onSecondaryTap: () => _showMessageActions(message),
+                child: Stack(
+                  children: [
+                    SizedBox(
+                      width: 160,
+                      height: 160,
+                      child: stickerUrl.isNotEmpty
+                          ? Image.network(
+                              stickerUrl,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  _buildStickerFallback(sticker?.stickerId ?? 0),
+                              loadingBuilder: (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return const Center(
+                                  child: RetroLoadingIndicator(size: 20),
+                                );
+                              },
+                            )
+                          : _buildStickerFallback(sticker?.stickerId ?? 0),
+                    ),
+                    Positioned(
+                      bottom: 4,
+                      right: 4,
+                      child: Container(
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0x66000000),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _formatTime(message.date),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
-                          ),
-                          if (isOut) ...[
-                            const SizedBox(width: 3),
-                            Icon(
-                              message.isUnread ? Icons.done : Icons.done_all,
-                              size: 11,
-                              color: Colors.white,
-                            ),
+                            if (isOut) ...[
+                              const SizedBox(width: 3),
+                              Icon(
+                                message.isUnread ? Icons.done : Icons.done_all,
+                                size: 11,
+                                color: Colors.white,
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -2015,6 +2297,138 @@ class _ChatConversationViewState extends State<ChatConversationView> {
     );
   }
 
+  Widget _buildReplyBanner() {
+    final reply = _replyToMessage;
+    if (reply == null) return const SizedBox.shrink();
+
+    final cache = widget.client.userCache;
+    String authorName = 'Собеседник';
+    if (reply.fromId == widget.currentUserId) {
+      authorName = 'Вы';
+    } else if (reply.fromId > 0) {
+      final user = cache.getUser(reply.fromId);
+      authorName = user?.fullName ?? cache.getSenderName(reply.fromId);
+    } else if (reply.fromId < 0) {
+      final group = cache.getGroup(reply.fromId.abs());
+      authorName = group?.name ?? 'Сообщество';
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 7, 8, 7),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color(0xFFEBF1F8), // Gloss highlight top
+            Color(0xFFD4DEE8), // Soft steel bottom
+          ],
+        ),
+        border: Border(
+          bottom: BorderSide(color: Color(0xFFBAC5D2), width: 1),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x10000000),
+            offset: Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 26,
+            height: 26,
+            decoration: BoxDecoration(
+              gradient: RetroTheme.buttonGradient,
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFF1B4E87), width: 1),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x20000000),
+                  offset: Offset(0, 1),
+                  blurRadius: 1.5,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.reply_rounded,
+              color: Colors.white,
+              size: 15,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Text(
+                      'Ответ для: ',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF5A6978),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    Flexible(
+                      child: Text(
+                        authorName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF22446B),
+                          shadows: [
+                            Shadow(
+                              color: Color(0x80FFFFFF),
+                              offset: Offset(0, 1),
+                              blurRadius: 0,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  reply.previewText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF4C5866),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: _clearReplyMessage,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0x18000000),
+                shape: BoxShape.circle,
+                border: Border.all(color: const Color(0x30000000), width: 0.8),
+              ),
+              child: const Icon(
+                Icons.close_rounded,
+                size: 14,
+                color: Color(0xFF505F70),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInputBar() {
     return Container(
       decoration: const BoxDecoration(
@@ -2025,44 +2439,49 @@ class _ChatConversationViewState extends State<ChatConversationView> {
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(
-              child: Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFB5C4D4), width: 1),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x10000000),
-                      offset: Offset(0, 1),
-                      blurRadius: 1,
+            if (_replyToMessage != null) _buildReplyBanner(),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: const Color(0xFFB5C4D4), width: 1),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x10000000),
+                            offset: Offset(0, 1),
+                            blurRadius: 1,
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      child: TextField(
+                        controller: _inputController,
+                        focusNode: _inputFocusNode,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _sendMessage(),
+                        decoration: const InputDecoration(
+                          hintText: 'Сообщение...',
+                          hintStyle: TextStyle(
+                            color: Color(0xFF909BA7),
+                            fontSize: 14.5,
+                          ),
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 8),
+                        ),
+                      ),
                     ),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: TextField(
-                  controller: _inputController,
-                  minLines: 1,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _sendMessage(),
-                  decoration: const InputDecoration(
-                    hintText: 'Сообщение...',
-                    hintStyle: TextStyle(
-                      color: Color(0xFF909BA7),
-                      fontSize: 14.5,
-                    ),
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 8),
                   ),
-                ),
-              ),
-            ),
             const SizedBox(width: 8),
             GestureDetector(
               onTap: _isSending ? null : _sendMessage,
@@ -2095,8 +2514,10 @@ class _ChatConversationViewState extends State<ChatConversationView> {
           ],
         ),
       ),
-    ),
-  );
+    ],
+  ),
+),
+);
 }
 }
 
@@ -2105,12 +2526,14 @@ class _BubbleTextWithTime extends StatelessWidget {
   final String time;
   final TextStyle textStyle;
   final TextStyle timeStyle;
+  final void Function(int ownerId)? onOpenProfile;
 
   const _BubbleTextWithTime({
     required this.text,
     required this.time,
     required this.textStyle,
     required this.timeStyle,
+    this.onOpenProfile,
   });
 
   @override
@@ -2120,13 +2543,19 @@ class _BubbleTextWithTime extends StatelessWidget {
         final maxWidth = constraints.maxWidth;
         const spacing = 7.0;
 
+        final spans = RetroTextParser.buildSpans(
+          text: text,
+          defaultStyle: textStyle,
+          onOpenProfile: onOpenProfile,
+        );
+
         final timePainter = TextPainter(
           text: TextSpan(text: time, style: timeStyle),
           textDirection: TextDirection.ltr,
         )..layout();
 
         final textPainter = TextPainter(
-          text: TextSpan(text: text, style: textStyle),
+          text: TextSpan(children: spans),
           textDirection: TextDirection.ltr,
         )..layout(maxWidth: maxWidth);
 
@@ -2142,7 +2571,7 @@ class _BubbleTextWithTime extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 Flexible(
-                  child: Text(text, style: textStyle),
+                  child: Text.rich(TextSpan(children: spans)),
                 ),
                 const SizedBox(width: spacing),
                 Text(time, style: timeStyle),
@@ -2162,7 +2591,7 @@ class _BubbleTextWithTime extends StatelessWidget {
             return Text.rich(
               TextSpan(
                 children: [
-                  TextSpan(text: text, style: textStyle),
+                  ...spans,
                   WidgetSpan(
                     alignment: PlaceholderAlignment.middle,
                     child: Padding(
@@ -2182,7 +2611,7 @@ class _BubbleTextWithTime extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text(text, style: textStyle),
+              Text.rich(TextSpan(children: spans)),
               const SizedBox(height: 1.5),
               Align(
                 alignment: Alignment.centerRight,

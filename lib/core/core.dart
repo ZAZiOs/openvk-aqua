@@ -16,6 +16,7 @@ export 'models/conversations_response.dart';
 export 'models/group.dart';
 export 'models/history_response.dart';
 export 'models/message.dart';
+export 'models/message_viewers_response.dart';
 export 'models/newsfeed_response.dart';
 export 'models/post.dart';
 export 'models/post_comment.dart';

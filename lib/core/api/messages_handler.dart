@@ -6,6 +6,7 @@ import '../models/conversations_response.dart';
 import '../models/group.dart';
 import '../models/history_response.dart';
 import '../models/message.dart';
+import '../models/message_viewers_response.dart';
 import '../models/user.dart';
 import '../utils/json_safe.dart';
 import 'api_response.dart';
@@ -265,6 +266,72 @@ class MessagesHandler {
     if (res.isSuccess) {
       _client.messengerStore.unpinMessage(peerId);
     }
+    return res;
+  }
+
+  Future<ApiResponse<bool>> pin({
+    required int peerId,
+    required int messageId,
+  }) async {
+    final res = await _client.call<bool>(
+      'messages.pin',
+      httpMethod: HttpMethod.post,
+      params: {
+        'v': '5.86',
+        'peer_id': peerId,
+        'message_id': messageId,
+      },
+      parser: (json) => JsonSafe.toBool(json, true),
+      fallback: () => false,
+    );
+    return res;
+  }
+
+  Future<ApiResponse<bool>> deleteMessages({
+    required List<int> messageIds,
+    bool deleteForAll = true,
+  }) async {
+    final res = await _client.call<bool>(
+      'messages.delete',
+      httpMethod: HttpMethod.post,
+      params: {
+        'v': '5.86',
+        'message_ids': messageIds.join(','),
+        'delete_for_all': deleteForAll ? 1 : 0,
+      },
+      parser: (json) => JsonSafe.toBool(json, true),
+      fallback: () => false,
+    );
+    return res;
+  }
+
+  Future<ApiResponse<MessageViewersResponse>> getMessageViewers({
+    required int peerId,
+    int? messageId,
+    int? conversationMessageId,
+  }) async {
+    final params = <String, dynamic>{
+      'peer_id': peerId,
+      if (messageId != null && messageId > 0) 'message_id': messageId,
+      if (conversationMessageId != null && conversationMessageId > 0)
+        'conversation_message_id': conversationMessageId,
+      'extended': 1,
+    };
+
+    final res = await _client.call<MessageViewersResponse>(
+      'messages.getMessageViewers',
+      params: params,
+      parser: (json) => MessageViewersResponse.fromJson(JsonSafe.toMap(json)),
+      fallback: () => MessageViewersResponse.empty(),
+    );
+
+    if (res.isSuccess && res.dataOrNull != null) {
+      final data = res.dataOrNull!;
+      if (data.profiles.isNotEmpty) {
+        _client.userCache.putUsers(data.profiles);
+      }
+    }
+
     return res;
   }
 }
