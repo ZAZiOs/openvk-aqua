@@ -7,6 +7,9 @@ on:
     branches: [ "main", "workflow-setup" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-android:
     name: Build Android APK
@@ -83,11 +86,16 @@ jobs:
       - name: Build Windows
         run: flutter build windows --release
 
+      - name: Compress Windows Build
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "windows-x64.zip"
+
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-app
-          path: build/windows/x64/runner/Release/
+          path: windows-x64.zip
 
   build-ios:
     name: Build iOS App (Unsigned)
@@ -120,3 +128,51 @@ jobs:
         with:
           name: ios-unsigned-ipa
           path: build/ios/iphoneos/ios-unsigned.ipa
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-android, build-windows, build-ios]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Calculate Next Version
+        id: versioning
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RAW_VER=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1 | tr -d '\r')
+          
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$RAW_VER"
+          
+          CURRENT_PATCH=$PATCH
+          while gh release view "v${MAJOR}.${MINOR}.${CURRENT_PATCH}" >/dev/null 2>&1; do
+            echo "Release v${MAJOR}.${MINOR}.${CURRENT_PATCH} already exists, bumping..."
+            CURRENT_PATCH=$((CURRENT_PATCH + 1))
+          done
+          
+          FINAL_TAG="v${MAJOR}.${MINOR}.${CURRENT_PATCH}"
+          echo "Selected release tag: $FINAL_TAG"
+          echo "tag=$FINAL_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create Release and Upload Assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.versioning.outputs.tag }}
+        run: |
+          gh release create "$TAG_NAME" \
+            release-assets/app-release.apk \
+            release-assets/windows-x64.zip \
+            release-assets/ios-unsigned.ipa \
+            --title "Release $TAG_NAME" \
+            --generate-notes
