@@ -283,7 +283,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     with SingleTickerProviderStateMixin {
   RetroSection _currentSection = RetroSection.news;
   MediaTab _mediaTab = MediaTab.photos;
-  String _messagesFilter = 'all';
   String _newsFilter = 'my';
   late final AnimationController _drawerController;
   double _currentSidebarWidth = 260.0;
@@ -378,6 +377,56 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     }
   }
 
+  bool _handleScrollNotification(ScrollNotification notification) {
+    if (notification.metrics.axis == Axis.horizontal) {
+      if (notification is OverscrollNotification) {
+        final dx = notification.dragDetails?.delta.dx;
+        if (dx != null && dx > 0) {
+          _drawerController.value =
+              (_drawerController.value + dx / _currentSidebarWidth).clamp(0.0, 1.0);
+        }
+      } else if (notification is ScrollUpdateNotification) {
+        if (_drawerController.value > 0) {
+          final dx = notification.dragDetails?.delta.dx;
+          if (dx != null && dx < 0) {
+            _drawerController.value =
+                (_drawerController.value + dx / _currentSidebarWidth).clamp(0.0, 1.0);
+          }
+        }
+      } else if (notification is ScrollEndNotification) {
+        if (_drawerController.value > 0 && _drawerController.value < 1.0) {
+          final velocity = notification.dragDetails?.primaryVelocity ?? 0;
+          if (velocity > 300) {
+            _drawerController.animateTo(
+              1.0,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            );
+          } else if (velocity < -300) {
+            _drawerController.animateTo(
+              0.0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+            );
+          } else if (_drawerController.value >= 0.35) {
+            _drawerController.animateTo(
+              1.0,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOutCubic,
+            );
+          } else {
+            _drawerController.animateTo(
+              0.0,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        }
+      }
+    }
+    return false;
+  }
+
   void _onSelectSection(RetroSection section, {required bool isWide}) {
     if (section == RetroSection.photos) {
       _currentSection = RetroSection.media;
@@ -441,113 +490,127 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
           );
         }
 
-        return GestureDetector(
-          onHorizontalDragStart: _handleDragStart,
-          onHorizontalDragUpdate: _handleDragUpdate,
-          onHorizontalDragEnd: _handleDragEnd,
-          onHorizontalDragCancel: _handleDragCancel,
-          behavior: HitTestBehavior.translucent,
-          child: Stack(
-            children: [
-              AnimatedBuilder(
-                animation: _drawerController,
-                builder: (context, child) {
-                  final double progress = _drawerController.value;
-                  final double xOffset = -50.0 * (1.0 - progress);
-                  final double opacity =
-                      (0.4 + 0.6 * progress).clamp(0.0, 1.0);
-                  final bool isClosed = progress == 0;
+        return Stack(
+          children: [
+            AnimatedBuilder(
+              animation: _drawerController,
+              builder: (context, child) {
+                final double progress = _drawerController.value;
+                final double xOffset = -50.0 * (1.0 - progress);
+                final double opacity =
+                    (0.4 + 0.6 * progress).clamp(0.0, 1.0);
+                final bool isClosed = progress == 0;
 
-                  return Transform.translate(
-                    offset: Offset(xOffset, 0),
-                    child: Opacity(
-                      opacity: opacity,
-                      child: IgnorePointer(
-                        ignoring: isClosed,
-                        child: ExcludeSemantics(
-                          excluding: isClosed,
-                          child: child,
-                        ),
+                return Transform.translate(
+                  offset: Offset(xOffset, 0),
+                  child: Opacity(
+                    opacity: opacity,
+                    child: IgnorePointer(
+                      ignoring: isClosed,
+                      child: ExcludeSemantics(
+                        excluding: isClosed,
+                        child: child,
                       ),
                     ),
-                  );
-                },
-                child: SizedBox(
-                  width: sidebarWidth,
-                  child: RetroSidebar(
-                    account: widget.account,
-                    onLogout: widget.onLogout,
-                    currentSection: _currentSection,
-                    onSectionSelected: (section) =>
-                        _onSelectSection(section, isWide: false),
                   ),
+                );
+              },
+              child: SizedBox(
+                width: sidebarWidth,
+                child: RetroSidebar(
+                  account: widget.account,
+                  onLogout: widget.onLogout,
+                  currentSection: _currentSection,
+                  onSectionSelected: (section) =>
+                      _onSelectSection(section, isWide: false),
                 ),
               ),
-              AnimatedBuilder(
-                animation: _drawerController,
-                builder: (context, child) {
-                  final double x = _drawerController.value * sidebarWidth;
-                  final bool isOpen = _drawerController.value > 0;
+            ),
+            AnimatedBuilder(
+              animation: _drawerController,
+              builder: (context, child) {
+                final double x = _drawerController.value * sidebarWidth;
+                final bool isOpen = _drawerController.value > 0;
 
-                  return Transform.translate(
-                    offset: Offset(x, 0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          if (isOpen)
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.55),
-                              blurRadius: 20,
-                              spreadRadius: 2,
-                              offset: const Offset(-4, 0),
-                            ),
-                        ],
-                      ),
-                      child: child,
+                return Transform.translate(
+                  offset: Offset(x, 0),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      boxShadow: [
+                        if (isOpen)
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                            offset: const Offset(-4, 0),
+                          ),
+                      ],
                     ),
-                  );
-                },
-                child: Stack(
-                  children: [
-                    _buildMainContent(
+                    child: child,
+                  ),
+                );
+              },
+              child: Stack(
+                children: [
+                  NotificationListener<ScrollNotification>(
+                    onNotification: _handleScrollNotification,
+                    child: _buildMainContent(
                       isWide: false,
                       hideBottomBar: hideBottomBar,
                       screenWidth: constraints.maxWidth,
                     ),
-                    Positioned.fill(
-                      child: AnimatedBuilder(
-                        animation: _drawerController,
-                        builder: (context, _) {
-                          final double val = _drawerController.value;
-                          final bool isClosed = val == 0;
+                  ),
+                  Positioned.fill(
+                    child: AnimatedBuilder(
+                      animation: _drawerController,
+                      builder: (context, _) {
+                        final double val = _drawerController.value;
+                        final bool isClosed = val == 0;
 
-                          return IgnorePointer(
-                            ignoring: isClosed,
-                            child: ExcludeSemantics(
-                              excluding: isClosed,
-                              child: GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: () => _drawerController.animateTo(
-                                  0.0,
-                                  duration: const Duration(milliseconds: 200),
-                                  curve: Curves.easeOutCubic,
-                                ),
-                                child: Container(
-                                  color: Colors.black.withValues(
-                                    alpha: 0.2 * val,
-                                  ),
+                        return IgnorePointer(
+                          ignoring: isClosed,
+                          child: ExcludeSemantics(
+                            excluding: isClosed,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => _drawerController.animateTo(
+                                0.0,
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOutCubic,
+                              ),
+                              onHorizontalDragStart: _handleDragStart,
+                              onHorizontalDragUpdate: _handleDragUpdate,
+                              onHorizontalDragEnd: _handleDragEnd,
+                              onHorizontalDragCancel: _handleDragCancel,
+                              child: Container(
+                                color: Colors.black.withValues(
+                                  alpha: 0.2 * val,
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
                     ),
-                  ],
-                ),
+                  ),
+                  // Left-edge drag detector to open drawer from screen edge
+                  Positioned(
+                    left: 0,
+                    top: 0,
+                    bottom: 0,
+                    width: 20,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onHorizontalDragStart: _handleDragStart,
+                      onHorizontalDragUpdate: _handleDragUpdate,
+                      onHorizontalDragEnd: _handleDragEnd,
+                      onHorizontalDragCancel: _handleDragCancel,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );
@@ -558,7 +621,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     required bool hideBottomBar,
     double screenWidth = double.infinity,
   }) {
-    final bool isMessages = _currentSection == RetroSection.messages;
     final bool isWall = _currentSection == RetroSection.profile;
     final bool isNews = _currentSection == RetroSection.news;
     final bool isMedia = _currentSection == RetroSection.media ||
@@ -570,8 +632,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     String? appBarTitle = _currentSection.title;
     Widget? appBarLeading;
     List<Widget>? appBarActions;
-
-    final bool isTwoPaneMessages = isMessages && screenWidth > 1000;
     bool centerMiddle = true;
 
     if (isNews) {
@@ -586,33 +646,6 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         padding: const EdgeInsets.symmetric(horizontal: 10),
         hasShadow: false,
       );
-      appBarLeading = null;
-    } else if (isMessages) {
-      appBarTitle = null;
-      final segmented = RetroSegmentedControl<String>(
-        tabs: const {
-          'all': 'Все',
-          'unread': 'Непрочитанные',
-        },
-        selected: _messagesFilter,
-        onSelected: (filter) => setState(() => _messagesFilter = filter),
-        hasShadow: false,
-      );
-
-      if (isTwoPaneMessages) {
-        centerMiddle = false;
-        appBarTitleWidget = Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: 400,
-            child: Center(
-              child: segmented,
-            ),
-          ),
-        );
-      } else {
-        appBarTitleWidget = segmented;
-      }
       appBarLeading = null;
     } else if (isWall) {
       appBarTitle = 'Моя Стена';
@@ -690,7 +723,7 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
                         ]
                       : null,
                 ),
-                child: _buildSectionBody(),
+                child: _buildSectionBody(isWide: isWide),
               ),
             ),
           );
@@ -721,43 +754,37 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
     );
   }
 
-  Widget _buildSectionBody() {
+  Widget _buildSectionBody({required bool isWide}) {
+    Widget body;
     if (_currentSection == RetroSection.settings) {
-      return SettingsView(onLogout: widget.onLogout);
-    }
-
-    if (_currentSection == RetroSection.messages) {
-      return MessagesView(
+      body = SettingsView(onLogout: widget.onLogout);
+    } else if (_currentSection == RetroSection.messages) {
+      body = MessagesView(
         key: const PageStorageKey('messages_view'),
         client: widget.client,
         account: widget.account,
-        filter: _messagesFilter,
       );
-    }
-
-    if (_currentSection == RetroSection.profile) {
-      return WallView(
+    } else if (_currentSection == RetroSection.profile) {
+      body = WallView(
         key: const PageStorageKey('wall_view'),
         client: widget.client,
         account: widget.account,
         onOpenSettings: () => setState(() => _currentSection = RetroSection.settings),
         onOpenEditProfile: () => setState(() => _currentSection = RetroSection.settings),
       );
-    }
-    if (_currentSection == RetroSection.news) {
-      return NewsfeedView(
+    } else if (_currentSection == RetroSection.news) {
+      body = NewsfeedView(
         key: const PageStorageKey('newsfeed_view'),
         client: widget.client,
         account: widget.account,
         filter: _newsFilter,
         onFilterChanged: (filter) => setState(() => _newsFilter = filter),
       );
-    }
-    if (_currentSection == RetroSection.media ||
+    } else if (_currentSection == RetroSection.media ||
         _currentSection == RetroSection.photos ||
         _currentSection == RetroSection.videos ||
         _currentSection == RetroSection.audio) {
-      return MediaView(
+      body = MediaView(
         key: const PageStorageKey('media_view'),
         client: widget.client,
         account: widget.account,
@@ -765,39 +792,55 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         onTabChanged: (tab) => setState(() => _mediaTab = tab),
         hideAppBar: true,
       );
+    } else {
+      body = Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFC3D1E0), width: 1),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x12000000),
+                offset: Offset(0, 2),
+                blurRadius: 4,
+              ),
+            ],
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'Work in progress',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: RetroTheme.textPrimary,
+                ),
+              ),
+              SizedBox(height: 12),
+              RetroLoadingIndicator(size: 24),
+            ],
+          ),
+        ),
+      );
     }
 
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFC3D1E0), width: 1),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x12000000),
-              offset: Offset(0, 2),
-              blurRadius: 4,
-            ),
-          ],
-        ),
-        child: const Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Work in progress',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: RetroTheme.textPrimary,
-              ),
-            ),
-            SizedBox(height: 12),
-            RetroLoadingIndicator(size: 24),
-          ],
-        ),
-      ),
-    );
+    if (!isWide &&
+        (_currentSection == RetroSection.profile ||
+            _currentSection == RetroSection.settings ||
+            _currentSection == RetroSection.messages)) {
+      body = GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: _handleDragStart,
+        onHorizontalDragUpdate: _handleDragUpdate,
+        onHorizontalDragEnd: _handleDragEnd,
+        onHorizontalDragCancel: _handleDragCancel,
+        child: body,
+      );
+    }
+
+    return body;
   }
 }

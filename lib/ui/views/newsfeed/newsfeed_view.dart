@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/core.dart';
 import '../../theme/retro_theme.dart';
+import '../../widgets/drawer_bound_physics.dart';
 import '../../widgets/retro_button.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
@@ -29,7 +30,9 @@ class NewsfeedView extends StatefulWidget {
 class _NewsfeedViewState extends State<NewsfeedView> {
   late final NewsfeedHandler _newsfeedHandler;
   late final WallHandler _wallHandler;
-  final ScrollController _scrollController = ScrollController();
+  late final PageController _pageController;
+  final ScrollController _myScrollController = ScrollController();
+  final ScrollController _globalScrollController = ScrollController();
 
   late String _currentFilter;
 
@@ -54,18 +57,19 @@ class _NewsfeedViewState extends State<NewsfeedView> {
 
   List<Post> get _currentPosts => _currentFilter == 'my' ? _myPosts : _globalPosts;
   bool get _isCurrentLoading => _currentFilter == 'my' ? _isLoadingMy : _isLoadingGlobal;
-  String? get _currentError => _currentFilter == 'my' ? _errorMy : _errorGlobal;
-  bool get _currentHasMore => _currentFilter == 'my' ? _hasMoreMy : _hasMoreGlobal;
 
   @override
   void initState() {
     super.initState();
     _currentFilter = widget.filter;
+    _pageController = PageController(initialPage: widget.filter == 'global' ? 1 : 0);
     _newsfeedHandler = NewsfeedHandler(widget.client);
     _wallHandler = WallHandler(widget.client);
-    _scrollController.addListener(_onScroll);
+    _myScrollController.addListener(_onMyScroll);
+    _globalScrollController.addListener(_onGlobalScroll);
 
-    _loadNews(filter: _currentFilter, refresh: false);
+    _loadNews(filter: 'my', refresh: false);
+    _loadNews(filter: 'global', refresh: false);
   }
 
   @override
@@ -73,6 +77,14 @@ class _NewsfeedViewState extends State<NewsfeedView> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.filter != widget.filter) {
       _currentFilter = widget.filter;
+      final targetPage = widget.filter == 'global' ? 1 : 0;
+      if (_pageController.hasClients && _pageController.page?.round() != targetPage) {
+        _pageController.animateToPage(
+          targetPage,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+        );
+      }
       final currentList = _currentPosts;
       if (currentList.isEmpty && !_isCurrentLoading) {
         _loadNews(filter: _currentFilter, refresh: false);
@@ -82,17 +94,29 @@ class _NewsfeedViewState extends State<NewsfeedView> {
 
   @override
   void dispose() {
-    _scrollController.removeListener(_onScroll);
-    _scrollController.dispose();
+    _pageController.dispose();
+    _myScrollController.removeListener(_onMyScroll);
+    _myScrollController.dispose();
+    _globalScrollController.removeListener(_onGlobalScroll);
+    _globalScrollController.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (!_scrollController.hasClients) return;
-    final maxScroll = _scrollController.position.maxScrollExtent;
-    final current = _scrollController.position.pixels;
-    if (current >= maxScroll - 350 && !_isCurrentLoading && !_isLoadingMore && _currentHasMore) {
-      _loadMore();
+  void _onMyScroll() {
+    if (!_myScrollController.hasClients) return;
+    final maxScroll = _myScrollController.position.maxScrollExtent;
+    final current = _myScrollController.position.pixels;
+    if (current >= maxScroll - 350 && !_isLoadingMy && !_isLoadingMore && _hasMoreMy) {
+      _loadMore(filter: 'my');
+    }
+  }
+
+  void _onGlobalScroll() {
+    if (!_globalScrollController.hasClients) return;
+    final maxScroll = _globalScrollController.position.maxScrollExtent;
+    final current = _globalScrollController.position.pixels;
+    if (current >= maxScroll - 350 && !_isLoadingGlobal && !_isLoadingMore && _hasMoreGlobal) {
+      _loadMore(filter: 'global');
     }
   }
 
@@ -187,9 +211,10 @@ class _NewsfeedViewState extends State<NewsfeedView> {
     }
   }
 
-  Future<void> _loadMore() async {
-    if (_isLoadingMore || !_currentHasMore) return;
-    final isMy = _currentFilter == 'my';
+  Future<void> _loadMore({required String filter}) async {
+    final isMy = filter == 'my';
+    final hasMore = isMy ? _hasMoreMy : _hasMoreGlobal;
+    if (_isLoadingMore || !hasMore) return;
 
     setState(() => _isLoadingMore = true);
 
@@ -341,7 +366,40 @@ class _NewsfeedViewState extends State<NewsfeedView> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isCurrentLoading && _currentPosts.isEmpty) {
+    return PageView(
+      controller: _pageController,
+      physics: const DrawerBoundPhysics(
+        parent: PageScrollPhysics(parent: ClampingScrollPhysics()),
+      ),
+      onPageChanged: (index) {
+        final newFilter = index == 1 ? 'global' : 'my';
+        if (_currentFilter != newFilter) {
+          setState(() {
+            _currentFilter = newFilter;
+          });
+          widget.onFilterChanged?.call(newFilter);
+          final posts = newFilter == 'my' ? _myPosts : _globalPosts;
+          final loading = newFilter == 'my' ? _isLoadingMy : _isLoadingGlobal;
+          if (posts.isEmpty && !loading) {
+            _loadNews(filter: newFilter, refresh: false);
+          }
+        }
+      },
+      children: [
+        _NewsfeedKeepAlive(child: _buildNewsList('my')),
+        _NewsfeedKeepAlive(child: _buildNewsList('global')),
+      ],
+    );
+  }
+
+  Widget _buildNewsList(String filter) {
+    final isMy = filter == 'my';
+    final posts = isMy ? _myPosts : _globalPosts;
+    final isLoading = isMy ? _isLoadingMy : _isLoadingGlobal;
+    final error = isMy ? _errorMy : _errorGlobal;
+    final scrollController = isMy ? _myScrollController : _globalScrollController;
+
+    if (isLoading && posts.isEmpty) {
       return const Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -360,7 +418,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
       );
     }
 
-    if (_currentError != null && _currentPosts.isEmpty) {
+    if (error != null && posts.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -370,7 +428,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
               const Icon(Icons.error_outline, size: 48, color: Color(0xFF8B98A7)),
               const SizedBox(height: 12),
               Text(
-                _currentError!,
+                error,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: RetroTheme.textSecondary,
@@ -381,7 +439,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
               RetroButton(
                 text: 'Повторить',
                 onPressed: () => _loadNews(
-                  filter: _currentFilter,
+                  filter: filter,
                   refresh: true,
                   forceRefresh: true,
                 ),
@@ -392,16 +450,15 @@ class _NewsfeedViewState extends State<NewsfeedView> {
       );
     }
 
-    final posts = _currentPosts;
-
     if (posts.isEmpty) {
       return RetroPullToRefresh(
         onRefresh: () => _loadNews(
-          filter: _currentFilter,
+          filter: filter,
           refresh: true,
           forceRefresh: true,
         ),
         child: ListView(
+          controller: scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             SizedBox(
@@ -417,7 +474,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      _currentFilter == 'my'
+                      isMy
                           ? 'У вас пока нет новостей'
                           : 'В глобальной ленте пока нет записей',
                       style: const TextStyle(
@@ -445,12 +502,12 @@ class _NewsfeedViewState extends State<NewsfeedView> {
 
     return RetroPullToRefresh(
       onRefresh: () => _loadNews(
-        filter: _currentFilter,
+        filter: filter,
         refresh: true,
         forceRefresh: true,
       ),
       child: ListView.separated(
-        controller: _scrollController,
+        controller: scrollController,
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         itemCount: posts.length + (_isLoadingMore ? 1 : 0),
@@ -476,5 +533,25 @@ class _NewsfeedViewState extends State<NewsfeedView> {
         },
       ),
     );
+  }
+}
+
+class _NewsfeedKeepAlive extends StatefulWidget {
+  final Widget child;
+  const _NewsfeedKeepAlive({required this.child});
+
+  @override
+  State<_NewsfeedKeepAlive> createState() => _NewsfeedKeepAliveState();
+}
+
+class _NewsfeedKeepAliveState extends State<_NewsfeedKeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

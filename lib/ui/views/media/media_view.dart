@@ -8,6 +8,7 @@ import '../../../core/api/openvk_client.dart';
 import '../../../core/models/attachment.dart';
 import '../../../core/services/audio_player_service.dart';
 import '../../theme/retro_theme.dart';
+import '../../widgets/drawer_bound_physics.dart';
 import '../../widgets/retro_app_bar.dart';
 import '../../widgets/retro_loading_indicator.dart';
 import '../../widgets/retro_media_viewer.dart';
@@ -76,6 +77,7 @@ class MediaView extends StatefulWidget {
 
 class _MediaViewState extends State<MediaView> {
   late final MediaHandler _mediaHandler;
+  late final PageController _pageController;
   late MediaTab _activeTab;
   final _audioService = RetroAudioPlayerService.instance;
 
@@ -113,6 +115,7 @@ class _MediaViewState extends State<MediaView> {
     super.initState();
     _mediaHandler = MediaHandler(widget.client);
     _activeTab = widget.tab ?? widget.initialTab;
+    _pageController = PageController(initialPage: _activeTab.index);
 
     _photosScrollController.addListener(_onPhotosScroll);
     _videosScrollController.addListener(_onVideosScroll);
@@ -125,15 +128,13 @@ class _MediaViewState extends State<MediaView> {
   void didUpdateWidget(covariant MediaView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.tab != null && widget.tab != _activeTab) {
-      setState(() {
-        _activeTab = widget.tab!;
-      });
-      _loadTabIfNeeded(_activeTab);
+      _selectTab(widget.tab!);
     }
   }
 
   @override
   void dispose() {
+    _pageController.dispose();
     _photosScrollController.dispose();
     _videosScrollController.dispose();
     _audiosScrollController.dispose();
@@ -167,11 +168,18 @@ class _MediaViewState extends State<MediaView> {
     }
   }
 
-  void _selectTab(MediaTab tab) {
+  void _selectTab(MediaTab tab, {bool animatePage = true}) {
     if (_activeTab == tab) return;
     setState(() {
       _activeTab = tab;
     });
+    if (animatePage && _pageController.hasClients && _pageController.page?.round() != tab.index) {
+      _pageController.animateToPage(
+        tab.index,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeInOut,
+      );
+    }
     widget.onTabChanged?.call(tab);
     _loadTabIfNeeded(tab);
   }
@@ -335,13 +343,22 @@ class _MediaViewState extends State<MediaView> {
     final body = Column(
       children: [
         Expanded(
-          child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 180),
-            child: switch (_activeTab) {
-              MediaTab.photos => _buildPhotosTab(context),
-              MediaTab.videos => _buildVideosTab(context),
-              MediaTab.audio => _buildAudioTab(context),
+          child: PageView(
+            controller: _pageController,
+            physics: const DrawerBoundPhysics(
+              parent: PageScrollPhysics(parent: ClampingScrollPhysics()),
+            ),
+            onPageChanged: (index) {
+              final newTab = MediaTab.values[index];
+              if (_activeTab != newTab) {
+                _selectTab(newTab, animatePage: false);
+              }
             },
+            children: [
+              _MediaKeepAlive(child: _buildPhotosTab(context)),
+              _MediaKeepAlive(child: _buildVideosTab(context)),
+              _MediaKeepAlive(child: _buildAudioTab(context)),
+            ],
           ),
         ),
         if (!widget.hideAppBar) const RetroAudioMiniPlayer(),
@@ -1085,3 +1102,24 @@ class _MediaViewState extends State<MediaView> {
     );
   }
 }
+
+class _MediaKeepAlive extends StatefulWidget {
+  final Widget child;
+  const _MediaKeepAlive({required this.child});
+
+  @override
+  State<_MediaKeepAlive> createState() => _MediaKeepAliveState();
+}
+
+class _MediaKeepAliveState extends State<_MediaKeepAlive>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+}
+

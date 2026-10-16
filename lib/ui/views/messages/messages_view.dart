@@ -14,13 +14,11 @@ import 'chat_conversation_view.dart';
 class MessagesView extends StatefulWidget {
   final OpenVkClient client;
   final SavedAccount account;
-  final String filter;
 
   const MessagesView({
     super.key,
     required this.client,
     required this.account,
-    this.filter = 'all',
   });
 
   @override
@@ -39,65 +37,28 @@ class _MessagesViewState extends State<MessagesView> {
   int? _selectedPeerId;
   ConversationItem? _selectedConversation;
 
-  int _allOffset = 0;
-  bool _hasMoreAll = true;
-
-  int _unreadOffset = 0;
-  bool _hasMoreUnread = true;
-  bool _hasFetchedUnread = false;
-
-  late String _currentFilter;
+  int _offset = 0;
+  bool _hasMore = true;
   String _searchQuery = '';
-
-  bool get _hasMore => _currentFilter == 'unread' ? _hasMoreUnread : _hasMoreAll;
-  int get _pageSize => _currentFilter == 'unread' ? 10 : 30;
 
   @override
   void initState() {
     super.initState();
-    _currentFilter = widget.filter;
     _messagesHandler = MessagesHandler(widget.client);
     _scrollController.addListener(_onScroll);
-    _loadConversations();
-  }
-
-  @override
-  void didUpdateWidget(covariant MessagesView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.filter != widget.filter) {
-      _currentFilter = widget.filter;
-      _onFilterChanged();
-    }
-  }
-
-  void _onFilterChanged() {
-    if (_currentFilter == 'unread') {
-      final existingUnreads =
-          widget.client.messengerStore.unreadConversationOrder.value;
-      if (existingUnreads.isNotEmpty) {
-        // Instantly display already loaded unread chats from RAM without full reload
-        // and trigger background lazy-loading check with count: 10
-        _checkMoreUnread();
-      } else if (!_hasFetchedUnread) {
-        _loadConversations(refresh: false);
-      }
-    } else {
-      final existingAll =
-          widget.client.messengerStore.conversationOrder.value;
-      if (existingAll.isEmpty) {
-        _loadConversations(refresh: false);
-      }
-    }
+    _loadConversations(refresh: false);
   }
 
   @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _scrollController.dispose();
     _searchController.dispose();
     super.dispose();
   }
 
   void _onScroll() {
+    if (!_scrollController.hasClients) return;
     if (_scrollController.position.pixels >=
             _scrollController.position.maxScrollExtent - 250 &&
         !_isLoading &&
@@ -107,36 +68,8 @@ class _MessagesViewState extends State<MessagesView> {
     }
   }
 
-  Future<void> _checkMoreUnread() async {
-    if (_isLoadingMore) return;
-    setState(() => _isLoadingMore = true);
-
-    final res = await _messagesHandler.getConversations(
-      offset: _unreadOffset,
-      count: 10,
-      filter: 'unread',
-      extended: true,
-    );
-
-    if (!mounted) return;
-
-    if (res.isSuccess && res.dataOrNull != null) {
-      final data = res.dataOrNull!;
-      setState(() {
-        _hasFetchedUnread = true;
-        _unreadOffset += data.items.length;
-        _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
-        _isLoadingMore = false;
-      });
-    } else {
-      setState(() => _isLoadingMore = false);
-    }
-  }
-
   Future<void> _loadConversations({bool refresh = false}) async {
-    final currentList = _currentFilter == 'unread'
-        ? widget.client.messengerStore.unreadConversationOrder.value
-        : widget.client.messengerStore.conversationOrder.value;
+    final currentList = widget.client.messengerStore.conversationOrder.value;
 
     if (currentList.isEmpty && !refresh) {
       setState(() {
@@ -145,12 +78,10 @@ class _MessagesViewState extends State<MessagesView> {
       });
     }
 
-    final currentCount = _pageSize;
-
     final res = await _messagesHandler.getConversations(
       offset: 0,
-      count: currentCount,
-      filter: _currentFilter,
+      count: 30,
+      filter: 'all',
       extended: true,
     );
 
@@ -159,14 +90,8 @@ class _MessagesViewState extends State<MessagesView> {
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
       setState(() {
-        if (_currentFilter == 'unread') {
-          _unreadOffset = data.items.length;
-          _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
-          _hasFetchedUnread = true;
-        } else {
-          _allOffset = data.items.length;
-          _hasMoreAll = _allOffset < data.count && data.items.isNotEmpty;
-        }
+        _offset = data.items.length;
+        _hasMore = _offset < data.count && data.items.isNotEmpty;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -185,14 +110,10 @@ class _MessagesViewState extends State<MessagesView> {
 
     setState(() => _isLoadingMore = true);
 
-    final currentOffset =
-        _currentFilter == 'unread' ? _unreadOffset : _allOffset;
-    final currentCount = _pageSize;
-
     final res = await _messagesHandler.getConversations(
-      offset: currentOffset,
-      count: currentCount,
-      filter: _currentFilter,
+      offset: _offset,
+      count: 30,
+      filter: 'all',
       extended: true,
     );
 
@@ -201,13 +122,8 @@ class _MessagesViewState extends State<MessagesView> {
     if (res.isSuccess && res.dataOrNull != null) {
       final data = res.dataOrNull!;
       setState(() {
-        if (_currentFilter == 'unread') {
-          _unreadOffset += data.items.length;
-          _hasMoreUnread = _unreadOffset < data.count && data.items.isNotEmpty;
-        } else {
-          _allOffset += data.items.length;
-          _hasMoreAll = _allOffset < data.count && data.items.isNotEmpty;
-        }
+        _offset += data.items.length;
+        _hasMore = _offset < data.count && data.items.isNotEmpty;
         _isLoadingMore = false;
       });
     } else {
@@ -478,9 +394,7 @@ class _MessagesViewState extends State<MessagesView> {
   }
 
   Widget _buildBody({required bool isTwoPane}) {
-    final orderNotifier = _currentFilter == 'unread'
-        ? widget.client.messengerStore.unreadConversationOrder
-        : widget.client.messengerStore.conversationOrder;
+    final orderNotifier = widget.client.messengerStore.conversationOrder;
 
     return ValueListenableBuilder<List<int>>(
       valueListenable: orderNotifier,
@@ -500,17 +414,15 @@ class _MessagesViewState extends State<MessagesView> {
         }
 
         if (_isLoading && displayPeerIds.isEmpty) {
-          return Center(
+          return const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const RetroLoadingIndicator(size: 28),
-                const SizedBox(height: 12),
+                RetroLoadingIndicator(size: 28),
+                SizedBox(height: 12),
                 Text(
-                  _currentFilter == 'unread'
-                      ? 'Проверка непрочитанных...'
-                      : 'Загрузка диалогов...',
-                  style: const TextStyle(
+                  'Загрузка диалогов...',
+                  style: TextStyle(
                     color: RetroTheme.textSecondary,
                     fontSize: 14,
                   ),
@@ -551,30 +463,9 @@ class _MessagesViewState extends State<MessagesView> {
         }
 
         if (displayPeerIds.isEmpty) {
-          if (_isLoadingMore) {
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  RetroLoadingIndicator(size: 28),
-                  SizedBox(height: 12),
-                  Text(
-                    'Проверка непрочитанных...',
-                    style: TextStyle(
-                      color: RetroTheme.textSecondary,
-                      fontSize: 14,
-                    ),
-                  ),
-                ],
-              ),
-            );
-          }
-
           final String emptyText = _searchQuery.isNotEmpty
               ? 'По запросу ничего не найдено'
-              : _currentFilter == 'unread'
-                  ? 'Нет непрочитанных сообщений'
-                  : 'У Вас пока нет сообщений';
+              : 'У Вас пока нет сообщений';
 
           return Center(
             child: Column(
@@ -930,3 +821,4 @@ class _MessagesViewState extends State<MessagesView> {
   );
 }
 }
+
