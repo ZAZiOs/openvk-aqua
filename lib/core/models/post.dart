@@ -25,6 +25,9 @@ class Post {
   final List<Post> copyHistory;
   final User? author;
   final Group? authorGroup;
+  final bool isPinned;
+  final User? wallOwner;
+  final Group? wallOwnerGroup;
 
   const Post({
     required this.id,
@@ -48,6 +51,9 @@ class Post {
     this.copyHistory = const [],
     this.author,
     this.authorGroup,
+    this.isPinned = false,
+    this.wallOwner,
+    this.wallOwnerGroup,
   });
 
   bool get isCommunity => fromId < 0 || authorGroup != null;
@@ -56,6 +62,12 @@ class Post {
     if (authorGroup != null) return authorGroup!.name;
     if (author != null) return author!.fullName;
     return 'Пользователь';
+  }
+
+  String get wallOwnerName {
+    if (wallOwnerGroup != null) return wallOwnerGroup!.name;
+    if (wallOwner != null) return wallOwner!.fullName;
+    return '';
   }
 
   String get authorAvatarUrl {
@@ -72,6 +84,9 @@ class Post {
     bool? userReposted,
     User? author,
     Group? authorGroup,
+    bool? isPinned,
+    User? wallOwner,
+    Group? wallOwnerGroup,
   }) {
     return Post(
       id: id,
@@ -95,6 +110,9 @@ class Post {
       copyHistory: copyHistory,
       author: author ?? this.author,
       authorGroup: authorGroup ?? this.authorGroup,
+      isPinned: isPinned ?? this.isPinned,
+      wallOwner: wallOwner ?? this.wallOwner,
+      wallOwnerGroup: wallOwnerGroup ?? this.wallOwnerGroup,
     );
   }
 
@@ -146,6 +164,17 @@ class Post {
       group = groupsMap?[fromId.abs()];
     }
 
+    // Resolve wall owner
+    User? wallOwner;
+    Group? wallOwnerGroup;
+    if (ownerId > 0) {
+      wallOwner = usersMap?[ownerId];
+    } else if (ownerId < 0) {
+      wallOwnerGroup = groupsMap?[ownerId.abs()];
+    }
+
+    final isPinned = JsonSafe.toBool(json['is_pinned']);
+
     return Post(
       id: id,
       ownerId: ownerId,
@@ -168,6 +197,9 @@ class Post {
       copyHistory: copyHistory,
       author: author,
       authorGroup: group,
+      isPinned: isPinned,
+      wallOwner: wallOwner,
+      wallOwnerGroup: wallOwnerGroup,
     );
   }
 }

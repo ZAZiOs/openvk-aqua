@@ -562,6 +562,7 @@ class _NewsfeedViewState extends State<NewsfeedView> {
           return WallPostCard(
             key: ValueKey('news_${post.ownerId}_${post.id}'),
             post: post,
+            isFeed: true,
             onLikeToggle: () => _handleToggleLike(post),
             onCommentsTap: () => _openPostView(post),
             onPostTap: () => _openPostView(post),

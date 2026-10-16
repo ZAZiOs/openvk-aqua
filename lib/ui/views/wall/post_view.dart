@@ -228,6 +228,37 @@ class _PostViewState extends State<PostView> {
     }
   }
 
+  Future<void> _handleDeletePost() async {
+    final confirm = await showIos6ConfirmDialog(
+      context: context,
+      title: 'Удаление записи',
+      message: 'Вы действительно хотите удалить эту запись со стены?',
+      cancelText: 'Отмена',
+      confirmText: 'Удалить',
+      isDestructive: true,
+    );
+
+    if (confirm != true) return;
+
+    final res = await _wallHandler.deletePost(
+      ownerId: _post.ownerId,
+      postId: _post.id,
+    );
+
+    if (!mounted) return;
+
+    if (res.isSuccess) {
+      Navigator.of(context).pop(true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(res.errorOrNull?.message ?? 'Не удалось удалить запись'),
+          backgroundColor: Colors.red.shade800,
+        ),
+      );
+    }
+  }
+
   Future<void> _showCommentMenu(PostComment comment) async {
     final canDelete = comment.fromId == widget.account.userId ||
         _post.ownerId == widget.account.userId;
@@ -446,6 +477,10 @@ class _PostViewState extends State<PostView> {
                               },
                               onAuthorTap: _openUserProfile,
                               onRepostContentTap: _openRepostView,
+                              onDeleteTap: (_post.fromId == widget.account.userId ||
+                                      _post.ownerId == widget.account.userId)
+                                  ? _handleDeletePost
+                                  : null,
                             ),
 
                             // Comments Section Header

@@ -1,11 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../core/models/post.dart';
 import '../../../widgets/retro_attachment_grid.dart';
 import '../../../widgets/retro_avatar.dart';
+import '../../../widgets/retro_ios6_dialog.dart';
+
+enum _PostAction {
+  open,
+  copy,
+  repost,
+  delete,
+}
 
 class WallPostCard extends StatefulWidget {
   final Post post;
+  final bool isFeed;
   final VoidCallback? onLikeToggle;
   final VoidCallback? onCommentsTap;
   final VoidCallback? onRepostTap;
@@ -17,6 +27,7 @@ class WallPostCard extends StatefulWidget {
   const WallPostCard({
     super.key,
     required this.post,
+    this.isFeed = false,
     this.onLikeToggle,
     this.onCommentsTap,
     this.onRepostTap,
@@ -75,8 +86,12 @@ class _WallPostCardState extends State<WallPostCard> {
         : text;
 
     return RepaintBoundary(
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onLongPress: () => _showPostActions(context),
+        onSecondaryTap: () => _showPostActions(context),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -149,7 +164,24 @@ class _WallPostCardState extends State<WallPostCard> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 2),
+                        if (widget.isFeed && post.ownerId != post.fromId) ...[
+                          const SizedBox(height: 1),
+                          GestureDetector(
+                            onTap: () => widget.onAuthorTap?.call(post.ownerId),
+                            child: Text(
+                              post.ownerId < 0
+                                  ? 'в группе ${post.wallOwnerName.isNotEmpty ? post.wallOwnerName : 'сообществе'}'
+                                  : 'на стене у ${post.wallOwnerName.isNotEmpty ? post.wallOwnerName : 'пользователя'}',
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                color: Color(0xFF4C75A3),
+                                fontWeight: FontWeight.w500,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                         Text(
                           _formatDate(post.date),
                           style: const TextStyle(
@@ -160,25 +192,30 @@ class _WallPostCardState extends State<WallPostCard> {
                       ],
                     ),
                   ),
-                  if (widget.onDeleteTap != null)
-                    PopupMenuButton<String>(
-                      icon: const Icon(Icons.more_horiz, size: 20, color: Color(0xFF7A8999)),
-                      padding: EdgeInsets.zero,
-                      itemBuilder: (context) => [
-                        const PopupMenuItem(
-                          value: 'delete',
-                          child: Row(
-                            children: [
-                              Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                              SizedBox(width: 8),
-                              Text('Удалить запись'),
-                            ],
+                  if (!widget.isFeed && post.isPinned)
+                    Container(
+                      margin: const EdgeInsets.only(right: 4, top: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE8EEF5),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: const Color(0xFFCAD4DF), width: 0.8),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.push_pin_rounded, size: 11, color: Color(0xFF4C75A3)),
+                          SizedBox(width: 3),
+                          Text(
+                            'Закреплён',
+                            style: TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF4C75A3),
+                            ),
                           ),
-                        ),
-                      ],
-                      onSelected: (val) {
-                        if (val == 'delete') widget.onDeleteTap?.call();
-                      },
+                        ],
+                      ),
                     ),
                 ],
               ),
@@ -193,6 +230,8 @@ class _WallPostCardState extends State<WallPostCard> {
                   children: [
                     GestureDetector(
                       onTap: widget.onPostTap,
+                      onLongPress: () => _showPostActions(context),
+                      onSecondaryTap: () => _showPostActions(context),
                       behavior: HitTestBehavior.opaque,
                       child: Text(
                         displayText,
@@ -355,7 +394,71 @@ class _WallPostCardState extends State<WallPostCard> {
           ],
         ),
       ),
+      ),
     );
+  }
+
+  Future<void> _showPostActions(BuildContext context) async {
+    final post = widget.post;
+    final actions = <Ios6DialogAction<_PostAction>>[
+      if (widget.onPostTap != null || widget.onCommentsTap != null)
+        const Ios6DialogAction(
+          text: 'Открыть запись',
+          value: _PostAction.open,
+          isPrimary: true,
+        ),
+      if (post.text.trim().isNotEmpty)
+        const Ios6DialogAction(
+          text: 'Скопировать текст',
+          value: _PostAction.copy,
+        ),
+      if (widget.onRepostTap != null)
+        const Ios6DialogAction(
+          text: 'Поделиться',
+          value: _PostAction.repost,
+        ),
+      if (widget.onDeleteTap != null)
+        const Ios6DialogAction(
+          text: 'Удалить запись',
+          value: _PostAction.delete,
+          isDestructive: true,
+        ),
+    ];
+
+    if (actions.isEmpty) return;
+
+    final action = await showIos6ActionsDialog<_PostAction>(
+      context: context,
+      title: 'Действие с записью',
+      message: post.text.trim(),
+      actions: actions,
+      cancelText: 'Отмена',
+    );
+
+    if (action == null || !mounted) return;
+
+    switch (action) {
+      case _PostAction.open:
+        (widget.onPostTap ?? widget.onCommentsTap)?.call();
+        break;
+      case _PostAction.copy:
+        await Clipboard.setData(ClipboardData(text: post.text));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Текст записи скопирован'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        break;
+      case _PostAction.repost:
+        widget.onRepostTap?.call();
+        break;
+      case _PostAction.delete:
+        widget.onDeleteTap?.call();
+        break;
+    }
   }
 }
 

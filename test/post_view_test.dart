@@ -1,9 +1,11 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:openvk_aqua/core/api/auth_handler.dart';
 import 'package:openvk_aqua/core/api/openvk_client.dart';
+import 'package:openvk_aqua/core/models/group.dart';
 import 'package:openvk_aqua/core/models/post.dart';
 import 'package:openvk_aqua/core/models/post_comment.dart';
 import 'package:openvk_aqua/core/models/user.dart';
@@ -167,6 +169,236 @@ void main() {
       expect(tappedRepost, isNotNull);
       expect(tappedRepost!.id, 99);
       expect(tappedRepost!.text, 'Оригинальный пост');
+    });
+
+    testWidgets('Renders "на стене у Х" when isFeed is true', (tester) async {
+      final post = Post(
+        id: 1,
+        ownerId: 20,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Пост на чужой стене',
+        author: const User(
+          id: 10,
+          firstName: 'Алиса',
+          lastName: 'Селезнева',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+        wallOwner: const User(
+          id: 20,
+          firstName: 'Борис',
+          lastName: 'Цаплин',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+              isFeed: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('на стене у Борис Цаплин'), findsOneWidget);
+    });
+
+    testWidgets('Does NOT render "на стене у Х" when author posts on own wall in feed', (tester) async {
+      final post = Post(
+        id: 1,
+        ownerId: 10,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Пост на своей стене',
+        author: const User(
+          id: 10,
+          firstName: 'Миша',
+          lastName: 'Капибара',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+              isFeed: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.textContaining('на стене у'), findsNothing);
+    });
+
+    testWidgets('Renders "в группе Х" when author posts in a group in feed', (tester) async {
+      final post = Post(
+        id: 1,
+        ownerId: -100,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Пост в группе',
+        author: const User(
+          id: 10,
+          firstName: 'Даниил',
+          lastName: 'Богдановский',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+        wallOwnerGroup: const Group(
+          id: 100,
+          name: 'Фан-клуб Вокалоидов',
+          screenName: 'vocaloid_fans',
+          photo50: '',
+          photo100: '',
+          isClosed: false,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+              isFeed: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('в группе Фан-клуб Вокалоидов'), findsOneWidget);
+    });
+
+    testWidgets('Renders "Закреплён" when on wall and isPinned is true', (tester) async {
+      final post = Post(
+        id: 1,
+        ownerId: 10,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Закрепленная запись на стене',
+        isPinned: true,
+        author: const User(
+          id: 10,
+          firstName: 'Мику',
+          lastName: 'Хацунэ',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+              isFeed: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Закреплён'), findsOneWidget);
+    });
+
+    testWidgets('Long press on post opens iOS 6 action modal', (tester) async {
+      bool deleteCalled = false;
+      final post = Post(
+        id: 1,
+        ownerId: 10,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Пост для проверки долгого нажатия',
+        author: const User(
+          id: 10,
+          firstName: 'Даниил',
+          lastName: 'Богдановский',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+              onDeleteTap: () => deleteCalled = true,
+            ),
+          ),
+        ),
+      );
+
+      // Long press on post card
+      await tester.longPress(find.text('Пост для проверки долгого нажатия'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Действие с записью'), findsOneWidget);
+      expect(find.text('Скопировать текст'), findsOneWidget);
+      expect(find.text('Удалить запись'), findsOneWidget);
+      expect(find.text('Отмена'), findsOneWidget);
+
+      await tester.tap(find.text('Удалить запись'));
+      await tester.pumpAndSettle();
+
+      expect(deleteCalled, isTrue);
+    });
+
+    testWidgets('Right click (secondary tap) on post opens iOS 6 action modal', (tester) async {
+      final post = Post(
+        id: 1,
+        ownerId: 10,
+        fromId: 10,
+        date: 1696000000,
+        text: 'Пост для ПКМ',
+        author: const User(
+          id: 10,
+          firstName: 'Даниил',
+          lastName: 'Богдановский',
+          photo50: '',
+          photo100: '',
+          isOnline: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WallPostCard(
+              post: post,
+            ),
+          ),
+        ),
+      );
+
+      // Secondary tap (right-click / ПКМ) on post
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.text('Пост для ПКМ')),
+        buttons: kSecondaryMouseButton,
+      );
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Действие с записью'), findsOneWidget);
+      expect(find.text('Скопировать текст'), findsOneWidget);
+      expect(find.text('Отмена'), findsOneWidget);
+
+      await tester.tap(find.text('Отмена'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Действие с записью'), findsNothing);
     });
   });
 
