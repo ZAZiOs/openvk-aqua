@@ -26,6 +26,7 @@ export 'models/wall_response.dart';
 export 'api/media_handler.dart';
 export 'models/media_response.dart';
 export 'services/audio_player_service.dart';
+export 'services/background_service_manager.dart';
 export 'notifications/notification_dispatcher.dart';
 export 'notifications/notification_payload.dart';
 export 'utils/json_safe.dart';

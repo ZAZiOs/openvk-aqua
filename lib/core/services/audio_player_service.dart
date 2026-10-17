@@ -2,9 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:video_player/video_player.dart';
-import 'package:video_player_win/video_player_win.dart';
 
 import '../models/attachment.dart';
 
@@ -13,11 +12,15 @@ enum AudioRepeatMode { off, all, one }
 class RetroAudioPlayerService extends ChangeNotifier {
   static final RetroAudioPlayerService instance = RetroAudioPlayerService._();
 
-  RetroAudioPlayerService._();
+  final AudioPlayer _player = AudioPlayer();
+  StreamSubscription<PlayerState>? _stateSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
+  StreamSubscription<void>? _completeSub;
 
-  VideoPlayerController? _controller;
   AudioAttachment? _currentTrack;
   List<AudioAttachment> _playlist = [];
+  List<AudioAttachment> _originalPlaylist = [];
   bool _isPlaying = false;
   bool _isBuffering = false;
   Duration _position = Duration.zero;
@@ -26,9 +29,15 @@ class RetroAudioPlayerService extends ChangeNotifier {
   bool _isShuffle = false;
   AudioRepeatMode _repeatMode = AudioRepeatMode.off;
   String? _errorMessage;
+  bool _contextConfigured = false;
+
+  RetroAudioPlayerService._() {
+    _initPlayer();
+  }
 
   AudioAttachment? get currentTrack => _currentTrack;
   List<AudioAttachment> get playlist => List.unmodifiable(_playlist);
+  List<AudioAttachment> get originalPlaylist => List.unmodifiable(_originalPlaylist);
   bool get isPlaying => _isPlaying;
   bool get isBuffering => _isBuffering;
   Duration get position => _position;
@@ -44,20 +53,102 @@ class RetroAudioPlayerService extends ChangeNotifier {
     return _playlist.indexWhere((a) => a.id == _currentTrack!.id);
   }
 
+  void _initPlayer() {
+    _configureAudioContext();
+
+    _stateSub = _player.onPlayerStateChanged.listen((state) {
+      final isPlayingState = state == PlayerState.playing;
+      final isBufferingState = false; // audioplayers handles buffering internally
+
+      bool shouldNotify = false;
+      if (_isPlaying != isPlayingState) {
+        _isPlaying = isPlayingState;
+        shouldNotify = true;
+      }
+      if (_isBuffering != isBufferingState) {
+        _isBuffering = isBufferingState;
+        shouldNotify = true;
+      }
+      if (shouldNotify) {
+        notifyListeners();
+      }
+    });
+
+    _positionSub = _player.onPositionChanged.listen((pos) {
+      if ((pos - _position).abs() >= const Duration(milliseconds: 300)) {
+        _position = pos;
+        notifyListeners();
+      }
+    });
+
+    _durationSub = _player.onDurationChanged.listen((dur) {
+      if (dur > Duration.zero && _duration != dur) {
+        _duration = dur;
+        notifyListeners();
+      }
+    });
+
+    _completeSub = _player.onPlayerComplete.listen((_) {
+      _handleTrackFinished();
+    });
+  }
+
+  Future<void> _configureAudioContext() async {
+    if (_contextConfigured) return;
+    _contextConfigured = true;
+
+    try {
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        await AudioPlayer.global.setAudioContext(
+          AudioContext(
+            iOS: AudioContextIOS(
+              category: AVAudioSessionCategory.playback,
+              options: {
+                AVAudioSessionOptions.defaultToSpeaker,
+              },
+            ),
+            android: AudioContextAndroid(
+              isSpeakerphoneOn: false,
+              stayAwake: true,
+              contentType: AndroidContentType.music,
+              usageType: AndroidUsageType.media,
+              audioFocus: AndroidAudioFocus.gain,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('[RetroAudioPlayerService] Error configuring AudioContext: $e');
+    }
+  }
+
   Future<void> playTrack(
     AudioAttachment track, {
     List<AudioAttachment>? playlist,
   }) async {
     if (playlist != null && playlist.isNotEmpty) {
-      _playlist = List.from(playlist);
+      _originalPlaylist = List.from(playlist);
+      if (_isShuffle) {
+        final others = List<AudioAttachment>.from(playlist)
+          ..removeWhere((a) => a.id == track.id);
+        others.shuffle(Random());
+        _playlist = [track, ...others];
+      } else {
+        _playlist = List.from(playlist);
+      }
     } else if (!_playlist.any((a) => a.id == track.id)) {
       _playlist.add(track);
+      if (!_originalPlaylist.any((a) => a.id == track.id)) {
+        _originalPlaylist.add(track);
+      }
     }
 
-    if (_currentTrack?.id == track.id && _controller != null) {
-      if (!_isPlaying) {
-        await play();
-      }
+    if (_currentTrack?.id == track.id && _isPlaying) {
+      return;
+    }
+
+    if (_currentTrack?.id == track.id && !_isPlaying) {
+      await play();
       return;
     }
 
@@ -66,8 +157,6 @@ class RetroAudioPlayerService extends ChangeNotifier {
       notifyListeners();
       return;
     }
-
-    _disposeController();
 
     _currentTrack = track;
     _errorMessage = null;
@@ -78,67 +167,19 @@ class RetroAudioPlayerService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      if (Platform.isWindows) {
-        WindowsVideoPlayer.registerWith();
-      }
-
-      final uri = Uri.parse(track.url);
-      final controller = VideoPlayerController.networkUrl(uri);
-      _controller = controller;
-
-      await controller.initialize();
-      controller.addListener(_onControllerUpdate);
-      await controller.setVolume(_volume);
-      await controller.play();
+      await _configureAudioContext();
+      await _player.stop();
+      await _player.setVolume(_volume);
+      await _player.play(UrlSource(track.url));
 
       _isPlaying = true;
       _isBuffering = false;
-      _duration = controller.value.duration;
       notifyListeners();
     } catch (e) {
       _isBuffering = false;
       _isPlaying = false;
       _errorMessage = 'Ошибка воспроизведения: $e';
       notifyListeners();
-    }
-  }
-
-  void _onControllerUpdate() {
-    final c = _controller;
-    if (c == null) return;
-
-    final val = c.value;
-    final isP = val.isPlaying;
-    final isB = val.isBuffering;
-    final pos = val.position;
-    final dur = val.duration;
-
-    bool shouldNotify = false;
-
-    if (_isPlaying != isP) {
-      _isPlaying = isP;
-      shouldNotify = true;
-    }
-    if (_isBuffering != isB) {
-      _isBuffering = isB;
-      shouldNotify = true;
-    }
-    if ((pos - _position).abs() >= const Duration(milliseconds: 300) ||
-        (dur > Duration.zero && _duration != dur)) {
-      _position = pos;
-      if (dur > Duration.zero) {
-        _duration = dur;
-      }
-      shouldNotify = true;
-    }
-
-    if (shouldNotify) {
-      notifyListeners();
-    }
-
-    // Auto next track on completion
-    if (dur > Duration.zero && pos >= dur && isP) {
-      _handleTrackFinished();
     }
   }
 
@@ -162,38 +203,35 @@ class RetroAudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> play() async {
-    if (_controller != null) {
-      await _controller!.play();
-      _isPlaying = true;
-      notifyListeners();
-    } else if (_currentTrack != null) {
-      await playTrack(_currentTrack!, playlist: _playlist);
+    if (_currentTrack != null) {
+      try {
+        await _player.resume();
+        _isPlaying = true;
+        notifyListeners();
+      } catch (e) {
+        await playTrack(_currentTrack!, playlist: _playlist);
+      }
     }
   }
 
   Future<void> pause() async {
-    if (_controller != null) {
-      await _controller!.pause();
+    try {
+      await _player.pause();
       _isPlaying = false;
       notifyListeners();
+    } catch (e) {
+      debugPrint('[RetroAudioPlayerService] Error pausing: $e');
     }
   }
 
   Future<void> next() async {
     if (_playlist.isEmpty) return;
 
-    if (_isShuffle) {
-      final rand = Random();
-      final nextIdx = rand.nextInt(_playlist.length);
-      await playTrack(_playlist[nextIdx], playlist: _playlist);
-      return;
-    }
-
     final curIdx = currentIndex;
     if (curIdx != -1 && curIdx + 1 < _playlist.length) {
-      await playTrack(_playlist[curIdx + 1], playlist: _playlist);
+      await playTrack(_playlist[curIdx + 1]);
     } else if (_repeatMode == AudioRepeatMode.all && _playlist.isNotEmpty) {
-      await playTrack(_playlist.first, playlist: _playlist);
+      await playTrack(_playlist.first);
     } else {
       await pause();
       await seekTo(Duration.zero);
@@ -210,7 +248,9 @@ class RetroAudioPlayerService extends ChangeNotifier {
 
     final curIdx = currentIndex;
     if (curIdx > 0) {
-      await playTrack(_playlist[curIdx - 1], playlist: _playlist);
+      await playTrack(_playlist[curIdx - 1]);
+    } else if (_repeatMode == AudioRepeatMode.all && _playlist.isNotEmpty) {
+      await playTrack(_playlist.last);
     } else {
       await seekTo(Duration.zero);
     }
@@ -219,21 +259,46 @@ class RetroAudioPlayerService extends ChangeNotifier {
   Future<void> seekTo(Duration pos) async {
     _position = pos;
     notifyListeners();
-    if (_controller != null) {
-      await _controller!.seekTo(pos);
+    try {
+      await _player.seek(pos);
+    } catch (e) {
+      debugPrint('[RetroAudioPlayerService] Error seeking: $e');
     }
   }
 
   Future<void> setVolume(double vol) async {
     _volume = vol.clamp(0.0, 1.0);
     notifyListeners();
-    if (_controller != null) {
-      await _controller!.setVolume(_volume);
+    try {
+      await _player.setVolume(_volume);
+    } catch (e) {
+      debugPrint('[RetroAudioPlayerService] Error setting volume: $e');
     }
   }
 
   void toggleShuffle() {
     _isShuffle = !_isShuffle;
+    if (_isShuffle) {
+      // Save original order before shuffling
+      if (_originalPlaylist.isEmpty || _originalPlaylist.length != _playlist.length) {
+        _originalPlaylist = List.from(_playlist);
+      }
+      if (_playlist.length > 1) {
+        final current = _currentTrack;
+        final others = _playlist.where((a) => a.id != current?.id).toList();
+        others.shuffle(Random());
+        if (current != null) {
+          _playlist = [current, ...others];
+        } else {
+          _playlist = others;
+        }
+      }
+    } else {
+      // Restore original order
+      if (_originalPlaylist.isNotEmpty) {
+        _playlist = List.from(_originalPlaylist);
+      }
+    }
     notifyListeners();
   }
 
@@ -252,15 +317,14 @@ class RetroAudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _disposeController() {
-    _controller?.removeListener(_onControllerUpdate);
-    _controller?.dispose();
-    _controller = null;
-  }
-
   @override
   void dispose() {
-    _disposeController();
+    _stateSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _completeSub?.cancel();
+    _player.dispose();
     super.dispose();
   }
 }
+

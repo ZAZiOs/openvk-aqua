@@ -15,6 +15,7 @@ import '../../widgets/retro_media_viewer.dart';
 import '../../widgets/retro_pull_to_refresh.dart';
 import '../../widgets/retro_segmented_control.dart';
 import '../video/retro_video_player_view.dart';
+import 'audio_playlists_view.dart';
 import 'retro_audio_mini_player.dart';
 
 enum MediaTab {
@@ -128,7 +129,7 @@ class _MediaViewState extends State<MediaView> {
   void didUpdateWidget(covariant MediaView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.tab != null && widget.tab != _activeTab) {
-      _selectTab(widget.tab!);
+      _selectTab(widget.tab!, notify: false);
     }
   }
 
@@ -168,19 +169,37 @@ class _MediaViewState extends State<MediaView> {
     }
   }
 
-  void _selectTab(MediaTab tab, {bool animatePage = true}) {
+  void _selectTab(
+    MediaTab tab, {
+    bool animatePage = true,
+    bool notify = true,
+  }) {
     if (_activeTab == tab) return;
     setState(() {
       _activeTab = tab;
     });
-    if (animatePage && _pageController.hasClients && _pageController.page?.round() != tab.index) {
-      _pageController.animateToPage(
-        tab.index,
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeInOut,
-      );
+    if (animatePage && _pageController.hasClients) {
+      if (_pageController.position.hasContentDimensions) {
+        if (_pageController.page?.round() != tab.index) {
+          _pageController.animateToPage(
+            tab.index,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+          );
+        }
+      } else {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_pageController.hasClients &&
+              _pageController.position.hasContentDimensions &&
+              _pageController.page?.round() != tab.index) {
+            _pageController.jumpToPage(tab.index);
+          }
+        });
+      }
     }
-    widget.onTabChanged?.call(tab);
+    if (notify) {
+      widget.onTabChanged?.call(tab);
+    }
     _loadTabIfNeeded(tab);
   }
 
@@ -387,6 +406,19 @@ class _MediaViewState extends State<MediaView> {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           hasShadow: false,
         ),
+        actions: [
+          if (_activeTab == MediaTab.audio)
+            RetroHeaderButton(
+              icon: Icons.queue_music_rounded,
+              text: 'Плейлисты',
+              onPressed: () => AudioPlaylistsView.open(
+                context,
+                client: widget.client,
+                account: widget.account,
+                ownerId: _targetId,
+              ),
+            ),
+        ],
       ),
       body: isDesktopWide
           ? Center(
@@ -797,7 +829,7 @@ class _MediaViewState extends State<MediaView> {
           physics: const AlwaysScrollableScrollPhysics(),
           children: [
             SizedBox(
-              height: MediaQuery.sizeOf(context).height * 0.45,
+              height: MediaQuery.sizeOf(context).height * 0.35,
               child: _buildEmptyState(
                 icon: Icons.music_note_rounded,
                 text: 'Нет аудиозаписей',
@@ -987,7 +1019,11 @@ class _MediaViewState extends State<MediaView> {
   }
 
   // Common Header
-  Widget _buildSectionHeader({required String title, required int count}) {
+  Widget _buildSectionHeader({
+    required String title,
+    required int count,
+    Widget? trailing,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: const BoxDecoration(
@@ -999,35 +1035,45 @@ class _MediaViewState extends State<MediaView> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              color: Color(0xFF455A73),
-              fontSize: 12.5,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 0.2,
-            ),
-          ),
-          if (count > 0)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                color: const Color(0xFF5A7A9F),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                count.toString(),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                title,
                 style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
+                  color: Color(0xFF455A73),
+                  fontSize: 12.5,
                   fontWeight: FontWeight.bold,
+                  letterSpacing: 0.2,
                 ),
               ),
-            ),
+              if (count > 0) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF5A7A9F),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    count.toString(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          ?trailing,
         ],
       ),
     );
   }
+
+
 
   Widget _buildEmptyState({required IconData icon, required String text}) {
     return Center(

@@ -85,6 +85,69 @@ class LongPollService {
     _isRunning = false;
   }
 
+  /// Forces LongPoll to refresh or reconnect immediately (e.g. on app resume or network reconnect).
+  Future<void> reconnect() async {
+    _server = null;
+    _key = null;
+    if (!_isRunning) {
+      start();
+    }
+  }
+
+  /// Performs a quick sync check for updates (ideal for iOS background fetch or fast wakeups).
+  Future<void> performQuickSync() async {
+    if (client.accessToken == null || client.accessToken!.isEmpty) return;
+    try {
+      if (_server == null || _key == null || _ts == null) {
+        final ok = await _fetchServerData();
+        if (!ok) return;
+      }
+
+      final normalizedServer = _server!.startsWith('http')
+          ? _server!
+          : 'https://$_server';
+
+      final uri = Uri.parse(
+        '$normalizedServer?act=a_check&key=$_key&ts=$_ts&wait=5&mode=2&version=3',
+      );
+
+      final response = await _httpClient
+          .get(uri)
+          .timeout(const Duration(seconds: 8));
+
+      final bodyStr = utf8.decode(response.bodyBytes);
+      final decoded = jsonDecode(bodyStr);
+      if (decoded is Map) {
+        final map = Map<String, dynamic>.from(decoded);
+        if (map.containsKey('failed')) {
+          final failedCode = JsonSafe.toInt(map['failed']);
+          if (failedCode == 1) {
+            _ts = JsonSafe.toInt(map['ts'], _ts ?? 0);
+          } else if (failedCode == 2 || failedCode == 3) {
+            _server = null;
+            _key = null;
+          }
+          return;
+        }
+
+        if (map.containsKey('ts')) {
+          _ts = JsonSafe.toInt(map['ts'], _ts ?? 0);
+        }
+        if (map.containsKey('pts')) {
+          _pts = JsonSafe.toInt(map['pts'], _pts ?? 0);
+        }
+
+        final updates = map['updates'];
+        if (updates is List && updates.isNotEmpty) {
+          debugPrint('[LongPollService] QuickSync updates: ${updates.length}');
+          _processUpdates(updates);
+        }
+      }
+    } catch (e) {
+      debugPrint('[LongPollService] Quick sync error: $e');
+    }
+  }
+
   Future<bool> _fetchServerData() async {
     try {
       final res = await client.call<Map<String, dynamic>>(

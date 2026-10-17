@@ -1,4 +1,5 @@
 import '../models/attachment.dart';
+import '../models/audio_playlist.dart';
 import '../utils/json_safe.dart';
 
 class MediaListResponse<T> {
@@ -78,6 +79,22 @@ class MediaListResponse<T> {
     for (final item in rawItems) {
       if (item is Map) {
         list.add(AudioAttachment.fromJson(Map<String, dynamic>.from(item)));
+      }
+    }
+
+    return MediaListResponse<T>(
+      count: count > 0 ? count : list.length,
+      items: list as List<T>,
+    );
+  }
+
+  factory MediaListResponse.fromPlaylists(dynamic raw) {
+    final (count, rawItems) = _extractListAndCount(raw);
+    final list = <AudioPlaylist>[];
+
+    for (final item in rawItems) {
+      if (item is Map) {
+        list.add(AudioPlaylist.fromJson(Map<String, dynamic>.from(item)));
       }
     }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/attachment.dart';
+import '../../core/services/audio_player_service.dart';
 import '../theme/retro_theme.dart';
 import 'retro_loading_indicator.dart';
 import 'retro_media_viewer.dart';
@@ -68,7 +69,14 @@ class RetroAttachmentGrid extends StatelessWidget {
             _buildVisualGrid(context, visualAttachments),
           if (audioAttachments.isNotEmpty) ...[
             if (visualAttachments.isNotEmpty) const SizedBox(height: 6),
-            ...audioAttachments.map((a) => _buildAudioRow(context, a)),
+            ...() {
+              final allAudios = audioAttachments
+                  .map((a) => a.audio)
+                  .whereType<AudioAttachment>()
+                  .toList();
+              return audioAttachments
+                  .map((a) => _buildAudioRow(context, a, allAudios));
+            }(),
           ],
           if (docAttachments.isNotEmpty) ...[
             if (visualAttachments.isNotEmpty || audioAttachments.isNotEmpty)
@@ -464,87 +472,126 @@ class RetroAttachmentGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildAudioRow(BuildContext context, Attachment item) {
+  Widget _buildAudioRow(
+    BuildContext context,
+    Attachment item,
+    List<AudioAttachment> playlist,
+  ) {
     final audio = item.audio;
     final title = audio?.title ?? 'Без названия';
     final artist = audio?.artist ?? 'Неизвестный исполнитель';
     final duration = audio?.duration ?? 0;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: isOut ? const Color(0xFFDFE9F5) : const Color(0xFFF2F4F7),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isOut ? const Color(0xFFC7D7E8) : const Color(0xFFDCE1E7),
-          width: 1,
-        ),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              gradient: RetroTheme.buttonGradient,
-              shape: BoxShape.circle,
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x20000000),
-                  offset: Offset(0, 1),
-                  blurRadius: 1,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: RetroTheme.textPrimary,
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  artist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: RetroTheme.textSecondary,
-                    fontSize: 11.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (duration > 0)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                _formatDuration(duration),
-                style: const TextStyle(
-                  color: RetroTheme.textMuted,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w500,
+    final service = RetroAudioPlayerService.instance;
+
+    return ListenableBuilder(
+      listenable: service,
+      builder: (context, _) {
+        final isCurrentTrack = audio != null && service.currentTrack?.id == audio.id;
+        final isPlaying = isCurrentTrack && service.isPlaying;
+
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: audio == null
+                ? null
+                : () {
+                    if (isCurrentTrack) {
+                      service.togglePlayPause();
+                    } else {
+                      service.playTrack(audio, playlist: playlist);
+                    }
+                  },
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 2),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: isPlaying
+                    ? (isOut ? const Color(0xFFD4E4F7) : const Color(0xFFE8EEF5))
+                    : (isOut ? const Color(0xFFDFE9F5) : const Color(0xFFF2F4F7)),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: isPlaying
+                      ? RetroTheme.vkBlue.withValues(alpha: 0.6)
+                      : (isOut ? const Color(0xFFC7D7E8) : const Color(0xFFDCE1E7)),
+                  width: isPlaying ? 1.5 : 1,
                 ),
               ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    decoration: BoxDecoration(
+                      gradient: isPlaying
+                          ? const LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Color(0xFF4C8CD2), Color(0xFF285F9E)],
+                            )
+                          : RetroTheme.buttonGradient,
+                      shape: BoxShape.circle,
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x20000000),
+                          offset: Offset(0, 1),
+                          blurRadius: 1,
+                        ),
+                      ],
+                    ),
+                    child: Icon(
+                      isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isPlaying ? RetroTheme.vkBlue : RetroTheme.textPrimary,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          artist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: RetroTheme.textSecondary,
+                            fontSize: 11.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (duration > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 8),
+                      child: Text(
+                        _formatDuration(duration),
+                        style: TextStyle(
+                          color: isPlaying ? RetroTheme.vkBlue : RetroTheme.textMuted,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
-        ],
-      ),
+          ),
+        );
+      },
     );
   }
 

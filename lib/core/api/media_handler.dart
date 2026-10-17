@@ -1,5 +1,6 @@
 import '../cache/cache_policy.dart';
 import '../models/attachment.dart';
+import '../models/audio_playlist.dart';
 import '../models/media_response.dart';
 import 'api_response.dart';
 import 'openvk_client.dart';
@@ -113,6 +114,7 @@ class MediaHandler {
   /// Fetch audio tracks for user or group via [audio.get].
   Future<ApiResponse<MediaListResponse<AudioAttachment>>> getAudios({
     int? ownerId,
+    int? albumId,
     int count = 30,
     int offset = 0,
     bool forceRefresh = false,
@@ -120,12 +122,13 @@ class MediaHandler {
     final isFirstPage = offset == 0;
     final params = <String, dynamic>{
       'owner_id': ?ownerId,
+      'album_id': ?albumId,
       'count': count,
       'offset': offset,
       'need_user': 1,
     };
 
-    final cacheKey = 'audios_${ownerId ?? 'my'}';
+    final cacheKey = 'audios_${ownerId ?? 'my'}${albumId != null ? '_album_$albumId' : ''}';
 
     if (isFirstPage) {
       return _client.callCached<MediaListResponse<AudioAttachment>>(
@@ -145,6 +148,44 @@ class MediaHandler {
       params: params,
       parser: (json) => MediaListResponse<AudioAttachment>.fromAudios(json),
       fallback: () => MediaListResponse<AudioAttachment>.empty(),
+    );
+  }
+
+  /// Fetch playlists (albums) for user or group via [audio.getAlbums].
+  Future<ApiResponse<MediaListResponse<AudioPlaylist>>> getAlbums({
+    int? ownerId,
+    int count = 50,
+    int offset = 0,
+    bool forceRefresh = false,
+  }) async {
+    final isFirstPage = offset == 0;
+    final params = <String, dynamic>{
+      'owner_id': ?ownerId,
+      'count': count,
+      'offset': offset,
+      'drop_private': 1,
+    };
+
+    final cacheKey = 'audio_albums_${ownerId ?? 'my'}';
+
+    if (isFirstPage) {
+      return _client.callCached<MediaListResponse<AudioPlaylist>>(
+        'audio.getAlbums',
+        cacheKey: cacheKey,
+        cacheTag: 'media_audio_albums',
+        cachePolicy: forceRefresh ? CachePolicy.networkOnly : CachePolicy.cacheFirst,
+        cacheTtl: const Duration(hours: 1),
+        params: params,
+        parser: (json) => MediaListResponse<AudioPlaylist>.fromPlaylists(json),
+        fallback: () => MediaListResponse<AudioPlaylist>.empty(),
+      );
+    }
+
+    return _client.call<MediaListResponse<AudioPlaylist>>(
+      'audio.getAlbums',
+      params: params,
+      parser: (json) => MediaListResponse<AudioPlaylist>.fromPlaylists(json),
+      fallback: () => MediaListResponse<AudioPlaylist>.empty(),
     );
   }
 }

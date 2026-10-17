@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'core/core.dart';
 import 'ui/theme/retro_theme.dart';
 import 'ui/views/login/login_view.dart';
+import 'ui/views/media/audio_playlists_view.dart';
 import 'ui/views/media/media_view.dart';
 import 'ui/views/media/retro_audio_mini_player.dart';
 import 'ui/views/messages/chat_conversation_view.dart';
@@ -78,7 +79,7 @@ class OpenVkApp extends StatefulWidget {
   State<OpenVkApp> createState() => _OpenVkAppState();
 }
 
-class _OpenVkAppState extends State<OpenVkApp> {
+class _OpenVkAppState extends State<OpenVkApp> with WidgetsBindingObserver {
   late final GlobalKey<NavigatorState> _navigatorKey;
   SavedAccount? _currentAccount;
   late bool _isOobeCompleted;
@@ -88,11 +89,32 @@ class _OpenVkAppState extends State<OpenVkApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isOobeCompleted = widget.initialOobeCompleted;
     _navigatorKey = widget.navigatorKey ?? GlobalKey<NavigatorState>();
     _currentAccount = widget.initialAccount;
     HardwareKeyboard.instance.addHandler(_handleKeyEvent);
     _setupNotifications();
+    _initBackgroundService();
+  }
+
+  void _initBackgroundService() {
+    BackgroundServiceManager.instance.initialize(
+      onBackgroundFetch: () async {
+        await widget.client.longPollService.performQuickSync();
+      },
+    );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.hidden) {
+      BackgroundServiceManager.instance.onAppPaused();
+    } else if (state == AppLifecycleState.resumed) {
+      BackgroundServiceManager.instance.onAppResumed();
+      widget.client.longPollService.reconnect();
+    }
   }
 
   Future<void> _onOobeCompleted() async {
@@ -172,6 +194,7 @@ class _OpenVkAppState extends State<OpenVkApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
     _longPollSub?.cancel();
     _notificationTapSub?.cancel();
@@ -673,6 +696,20 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         hasShadow: false,
       );
       appBarLeading = null;
+      if (_mediaTab == MediaTab.audio) {
+        appBarActions = [
+          RetroHeaderButton(
+            icon: Icons.queue_music_rounded,
+            text: 'Плейлисты',
+            onPressed: () => AudioPlaylistsView.open(
+              context,
+              client: widget.client,
+              account: widget.account,
+              ownerId: widget.account.userId,
+            ),
+          ),
+        ];
+      }
     } else {
       appBarLeading = null;
     }
@@ -778,7 +815,11 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         client: widget.client,
         account: widget.account,
         filter: _newsFilter,
-        onFilterChanged: (filter) => setState(() => _newsFilter = filter),
+        onFilterChanged: (filter) {
+          if (_newsFilter != filter) {
+            setState(() => _newsFilter = filter);
+          }
+        },
       );
     } else if (_currentSection == RetroSection.media ||
         _currentSection == RetroSection.photos ||
@@ -789,7 +830,11 @@ class _RetroHomeScreenState extends State<RetroHomeScreen>
         client: widget.client,
         account: widget.account,
         tab: _mediaTab,
-        onTabChanged: (tab) => setState(() => _mediaTab = tab),
+        onTabChanged: (tab) {
+          if (_mediaTab != tab) {
+            setState(() => _mediaTab = tab);
+          }
+        },
         hideAppBar: true,
       );
     } else {
