@@ -142,36 +142,47 @@ void main() {
   testWidgets('OpenVkApp displays OobeView when initialOobeCompleted is false, then transitions to LoginView', (
     WidgetTester tester,
   ) async {
-    await AppDatabase.instance.init(inMemory: true);
-    final client = OpenVkClient();
-    final authHandler = AuthHandler(client: client);
+    await tester.runAsync(() async {
+      await AppDatabase.instance.init(inMemory: true);
+      final client = OpenVkClient();
+      final authHandler = AuthHandler(client: client);
 
-    await tester.pumpWidget(
-      OpenVkApp(
-        authHandler: authHandler,
-        client: client,
-        initialOobeCompleted: false,
-      ),
-    );
-    await tester.pump();
+      tester.view.physicalSize = const Size(800, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
 
-    // Verify OOBE elements
-    expect(find.text('Ассистент настройки'), findsOneWidget);
-    expect(find.text('OpenVK Aqua'), findsOneWidget);
-    expect(find.text('Уведомления'), findsOneWidget);
-    expect(find.text('Начать использование'), findsOneWidget);
+      await tester.pumpWidget(
+        OpenVkApp(
+          authHandler: authHandler,
+          client: client,
+          initialOobeCompleted: false,
+        ),
+      );
+      await tester.pump();
 
-    // Tap "Начать использование"
-    await tester.tap(find.text('Начать использование'));
-    await tester.pumpAndSettle();
+      // Verify OOBE elements
+      expect(find.text('Ассистент настройки'), findsOneWidget);
+      expect(find.text('OpenVK Aqua'), findsOneWidget);
+      expect(find.text('Уведомления'), findsOneWidget);
+      expect(find.text('Начать использование'), findsOneWidget);
 
-    // Verify transition to LoginView
-    expect(find.text('Войти'), findsOneWidget);
-    expect(find.text('Телефон или e-mail'), findsOneWidget);
+      // Tap "Начать использование"
+      await tester.ensureVisible(find.text('Начать использование'));
+      await tester.pump();
+      await tester.tap(find.text('Начать использование'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await tester.pump();
 
-    // Verify database flag was persisted
-    final completedInDb = await AppDatabase.instance.isOobeCompleted();
-    expect(completedInDb, isTrue);
+      // Verify transition to LoginView
+      expect(find.text('Войти'), findsOneWidget);
+      expect(find.text('Телефон или e-mail'), findsOneWidget);
+
+      // Verify database flag was persisted
+      final completedInDb = await AppDatabase.instance.isOobeCompleted();
+      expect(completedInDb, isTrue);
+      await AppDatabase.instance.close();
+    });
   });
 }
 

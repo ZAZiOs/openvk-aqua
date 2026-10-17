@@ -33,7 +33,8 @@ import AVFoundation
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    setupBackgroundChannel(messenger: engineBridge.binaryMessenger)
+    let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "BackgroundSyncPlugin")
+    setupBackgroundChannel(messenger: registrar.messenger())
   }
 
   private func setupBackgroundChannel(messenger: FlutterBinaryMessenger) {
